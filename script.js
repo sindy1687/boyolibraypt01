@@ -1725,33 +1725,50 @@ class LibrarySystem {
 
     // 根據書編號自動分類匹配
     matchesBookGenre(book, genreFilter) {
-        // 如果書籍已有類別且匹配，直接返回
-        if (book.genre === genreFilter) {
-            return true;
+        // 以主書碼 book.id 的前綴為準，避免合併書卡因含其他前綴而被放行
+        const mainCode = String(book.id || '').toUpperCase();
+        const mainMatch = mainCode.match(/^([ABC])(\d+)$/);
+        if (mainMatch) {
+            const prefix = mainMatch[1];
+            switch (prefix) {
+                case 'A':
+                    return genreFilter === '繪本';
+                case 'B':
+                    return genreFilter === '橋梁書';
+                case 'C':
+                    return genreFilter === '文字書';
+                default:
+                    return false;
+            }
         }
 
-        // 根據書編號前綴判斷類別
-        const bookCode = String(book.id || '').toUpperCase();
-        const codeMatch = bookCode.match(/^([ABC])(\d+)$/);
-        
-        if (!codeMatch) {
-            // 如果書碼格式不正確，使用原有類別判斷
-            return book.genre === genreFilter;
+        // 主書碼不合法時，才回退檢查 bookIds（例如舊資料/合併資料）
+        const allCodes = Array.isArray(book.bookIds)
+            ? book.bookIds.map(v => String(v || '').toUpperCase()).filter(Boolean)
+            : [];
+
+        const prefixes = allCodes
+            .map(code => code.match(/^([ABC])(\d+)$/))
+            .filter(Boolean)
+            .map(m => m[1]);
+
+        if (prefixes.length > 0) {
+            return prefixes.some(prefix => {
+                switch (prefix) {
+                    case 'A':
+                        return genreFilter === '繪本';
+                    case 'B':
+                        return genreFilter === '橋梁書';
+                    case 'C':
+                        return genreFilter === '文字書';
+                    default:
+                        return false;
+                }
+            });
         }
 
-        const [, prefix] = codeMatch;
-        
-        // 根據前綴匹配類別
-        switch (prefix) {
-            case 'A': // 繪本類
-                return genreFilter === '繪本';
-            case 'B': // 國小四年級適合的書
-                return this.isElementaryGrade4Book(book, genreFilter);
-            case 'C': // 全類別
-                return true; // C開頭的書顯示所有類別
-            default:
-                return book.genre === genreFilter;
-        }
+        // 如果書碼格式都不正確，最後才使用原有類別判斷
+        return book.genre === genreFilter;
     }
 
     // 判斷是否為國小四年級適合的書籍
