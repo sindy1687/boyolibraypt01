@@ -1132,7 +1132,9 @@ class LibrarySystem {
                 genre,
                 year,
                 copies,
-                availableCopies: copies
+                availableCopies: copies,
+                isNew: true,
+                addedAt: Date.now()
             };
 
             this.books.push(newBook);
@@ -1297,7 +1299,7 @@ class LibrarySystem {
     }
 
     // 排序書籍，讓同系列書籍排在一起
-    sortBooksWithSeries(books) {
+    sortBooksWithSeries(books, sortOrder = 'asc') {
         // 為每本書添加清理後的書名和系列標記
         const booksWithSeriesInfo = books.map(book => ({
             ...book,
@@ -1325,16 +1327,17 @@ class LibrarySystem {
         // 處理系列書籍（至少2本才算系列）
         seriesMap.forEach((seriesBooks, seriesName) => {
             if (seriesBooks.length >= 2) {
-                // 按書名排序系列內的書籍
-                seriesBooks.sort((a, b) => a.title.localeCompare(b.title, 'zh-TW'));
+                // 按書名排序系列內的書籍（尊重升冪/降冪）
+                seriesBooks.sort((a, b) => this.smartTitleSort(a.title, b.title, sortOrder));
                 sortedBooks.push(...seriesBooks);
             } else {
                 // 單本書籍加入獨立書籍
                 standaloneBooks.push(...seriesBooks);
             }
         });
-        
-        // 添加獨立書籍
+
+        // 獨立書籍也按書名排序，避免打亂目前排序
+        standaloneBooks.sort((a, b) => this.smartTitleSort(a.title, b.title, sortOrder));
         sortedBooks.push(...standaloneBooks);
         
         return sortedBooks;
@@ -1564,80 +1567,7 @@ class LibrarySystem {
             return matchesSearch && matchesGenre;
         });
 
-        // 智能排序：讓相似書名的書籍聚集在一起
-        filteredBooks.sort((a, b) => {
-            // 如果是按書碼排序，直接使用書碼排序邏輯（書碼已包含類別信息）
-            if (sortBy === 'code') {
-                const aCode = String(a.id || '').toUpperCase();
-                const bCode = String(b.id || '').toUpperCase();
-                
-                // 確保書碼格式正確（字母+數字）
-                const aMatch = aCode.match(/^([ABC])(\d+)$/);
-                const bMatch = bCode.match(/^([ABC])(\d+)$/);
-                
-                if (aMatch && bMatch) {
-                    // 兩者都是正確格式，按字母然後按數字排序
-                    const [, aLetter, aNumStr] = aMatch;
-                    const [, bLetter, bNumStr] = bMatch;
-                    
-                    if (aLetter !== bLetter) {
-                        // 字母不同，按字母排序
-                        return sortOrder === 'asc' ? 
-                            aLetter.localeCompare(bLetter) : 
-                            bLetter.localeCompare(aLetter);
-                    } else {
-                        // 字母相同，按數字排序（確保數值排序）
-                        const aNum = parseInt(aNumStr, 10);
-                        const bNum = parseInt(bNumStr, 10);
-                        
-                        // 確保是有效的數字比較
-                        if (!isNaN(aNum) && !isNaN(bNum)) {
-                            return sortOrder === 'asc' ? aNum - bNum : bNum - aNum;
-                        } else {
-                            // 如果解析失敗，回退到字符串比較
-                            return sortOrder === 'asc' ? 
-                                aNumStr.localeCompare(bNumStr) : 
-                                bNumStr.localeCompare(aNumStr);
-                        }
-                    }
-                } else {
-                    // 如果格式不正確，使用字符串比較作為備用
-                    return sortOrder === 'asc' ? 
-                        aCode.localeCompare(bCode) : 
-                        bCode.localeCompare(aCode);
-                }
-            }
-            
-            // 其他排序方式：首先按類別分組
-            const genreOrder = ['繪本', '橋梁書', '文字書'];
-            const aGenreIndex = genreOrder.indexOf(a.genre);
-            const bGenreIndex = genreOrder.indexOf(b.genre);
-            
-            if (aGenreIndex !== bGenreIndex) {
-                return aGenreIndex - bGenreIndex;
-            }
-            
-            // 然後按主要排序條件排序
-            let aVal = a[sortBy];
-            let bVal = b[sortBy];
-            
-            if (sortBy === 'year') {
-                aVal = parseInt(aVal);
-                bVal = parseInt(bVal);
-            } else if (sortBy === 'title') {
-                // 對於書名排序，使用智能分組
-                return this.smartTitleSort(a.title, b.title, sortOrder);
-            } else {
-                aVal = aVal.toString().toLowerCase();
-                bVal = bVal.toString().toLowerCase();
-            }
-            
-            if (sortOrder === 'asc') {
-                return aVal > bVal ? 1 : -1;
-            } else {
-                return aVal < bVal ? 1 : -1;
-            }
-        });
+        // 注意：排序要在「合併」後再套用，避免合併後順序被打亂
 
         if (filteredBooks.length === 0) {
             container.innerHTML = `
@@ -1664,9 +1594,71 @@ class LibrarySystem {
         
         // 合併相同書名的書籍
         const mergedBooks = this.mergeBooksByTitle(filteredBooks);
-        
-        // 分組同系列書籍，但只排序不分組
-        const sortedBooks = this.sortBooksWithSeries(mergedBooks);
+
+        // 合併後排序
+        mergedBooks.sort((a, b) => {
+            if (sortBy === 'code') {
+                const aCode = String(a.id || '').toUpperCase();
+                const bCode = String(b.id || '').toUpperCase();
+                const aMatch = aCode.match(/^([ABC])(\d+)$/);
+                const bMatch = bCode.match(/^([ABC])(\d+)$/);
+
+                if (aMatch && bMatch) {
+                    const [, aLetter, aNumStr] = aMatch;
+                    const [, bLetter, bNumStr] = bMatch;
+
+                    if (aLetter !== bLetter) {
+                        return sortOrder === 'asc'
+                            ? aLetter.localeCompare(bLetter)
+                            : bLetter.localeCompare(aLetter);
+                    }
+
+                    const aNum = parseInt(aNumStr, 10);
+                    const bNum = parseInt(bNumStr, 10);
+                    if (!isNaN(aNum) && !isNaN(bNum)) {
+                        return sortOrder === 'asc' ? aNum - bNum : bNum - aNum;
+                    }
+                    return sortOrder === 'asc'
+                        ? aNumStr.localeCompare(bNumStr)
+                        : bNumStr.localeCompare(aNumStr);
+                }
+
+                return sortOrder === 'asc'
+                    ? aCode.localeCompare(bCode)
+                    : bCode.localeCompare(aCode);
+            }
+
+            // 其他排序方式：首先按類別分組
+            const genreOrder = ['繪本', '橋梁書', '文字書'];
+            const aGenreIndex = genreOrder.indexOf(a.genre);
+            const bGenreIndex = genreOrder.indexOf(b.genre);
+            if (aGenreIndex !== bGenreIndex) {
+                return aGenreIndex - bGenreIndex;
+            }
+
+            // 然後按主要排序條件排序
+            let aVal = a[sortBy];
+            let bVal = b[sortBy];
+            if (sortBy === 'year') {
+                aVal = parseInt(aVal);
+                bVal = parseInt(bVal);
+            } else if (sortBy === 'title') {
+                return this.smartTitleSort(a.title, b.title, sortOrder);
+            } else {
+                aVal = aVal.toString().toLowerCase();
+                bVal = bVal.toString().toLowerCase();
+            }
+
+            if (sortOrder === 'asc') {
+                return aVal > bVal ? 1 : -1;
+            }
+            return aVal < bVal ? 1 : -1;
+        });
+
+        // 只有在「按書名排序」時才做系列聚集，避免覆蓋書碼排序
+        const sortedBooks = sortBy === 'title'
+            ? this.sortBooksWithSeries(mergedBooks, sortOrder)
+            : mergedBooks;
         
         container.innerHTML = sortedBooks.map(book => this.createBookCard(book)).join('');
     }
@@ -1685,7 +1677,10 @@ class LibrarySystem {
                     bookIds: [book.id],
                     mergedBooks: [book],
                     totalCopies: book.copies || 1,
-                    totalAvailableCopies: book.availableCopies || 0
+                    totalAvailableCopies: book.availableCopies || 0,
+                    // 新書標記：合併卡片沿用最新 addedAt
+                    isNew: !!book.isNew,
+                    addedAt: book.addedAt || null
                 };
                 titleMap.set(normalizedTitle, mergedBook);
             } else {
@@ -1695,6 +1690,12 @@ class LibrarySystem {
                 existingBook.mergedBooks.push(book);
                 existingBook.totalCopies += (book.copies || 1);
                 existingBook.totalAvailableCopies += (book.availableCopies || 0);
+
+                // 新書標記：只要其中一本是新書就標記；addedAt 取最新
+                if (book.isNew) existingBook.isNew = true;
+                const existingAddedAt = existingBook.addedAt || 0;
+                const nextAddedAt = book.addedAt || 0;
+                if (nextAddedAt > existingAddedAt) existingBook.addedAt = nextAddedAt;
                 
                 // 更新主要資訊（使用第一本書的資訊）
                 if (!existingBook.author && book.author) {
@@ -1833,6 +1834,10 @@ class LibrarySystem {
     createBookCard(book) {
         // 判斷是否為合併書籍
         const isMerged = book.mergedBooks && book.mergedBooks.length > 1;
+
+        // 新增書籍記號（7天內視為新書）
+        const addedAt = Number(book.addedAt) || 0;
+        const isNew = !!book.isNew && addedAt > 0 && (Date.now() - addedAt) <= 7 * 24 * 60 * 60 * 1000;
         
         // 計算可借閱數量（使用合併後的數量）
         const availableCopies = isMerged ? book.totalAvailableCopies : (book.availableCopies || 0);
@@ -1879,6 +1884,7 @@ class LibrarySystem {
                         </div>`
                     }
                     ${isMerged ? '<div class="merged-badge">合併</div>' : ''}
+                    ${isNew ? '<div class="new-badge">新</div>' : ''}
                 </div>
                 <div class="book-content">
                     <div class="book-header">
@@ -3559,6 +3565,9 @@ ${isbn ? `ISBN：${isbn}` : ''}
         const info = book.volumeInfo;
         
         // 預填新增書籍表單
+        const suggestedId = this.suggestNextBookId();
+        const idEl = document.getElementById('book-id');
+        if (idEl && !idEl.value.trim()) idEl.value = suggestedId;
         document.getElementById('book-title').value = info.title || '';
         document.getElementById('book-author').value = info.authors ? info.authors.join(', ') : '';
         document.getElementById('book-year').value = info.publishedDate ? info.publishedDate.substring(0, 4) : new Date().getFullYear();

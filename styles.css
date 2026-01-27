@@ -1217,6 +1217,20 @@ body {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
+.new-badge {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    background: #e53e3e;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
 .book-card.merged:hover {
     transform: translateY(-4px);
     box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
