@@ -403,61 +403,41 @@ class LibrarySystem {
         }
     }
 
-    // 自動從 Google Sheets 載入書籍
-    async autoLoadFromGoogleSheets() {
-        const url = this.getGoogleWebAppUrl();
-        if (!url) {
-            // 如果沒有設定 Google Sheets，回退到 CSV 載入
-            this.autoLoadCSV();
-            return;
-        }
+    updateBorrowedToggleIcon() {
+        const icon = document.querySelector('#borrowed-toggle-btn i');
+        if (!icon) return;
 
-        try {
-            console.log('開始從 Google Sheets 自動載入書籍資料...');
-            
-            const response = await fetch(url, {
-                method: 'POST',
-                body: JSON.stringify({ action: 'pull' })
+        const panel = document.querySelector('.borrowed-section');
+        if (!panel) return;
+
+        const isOpen = panel.classList.contains('open');
+        icon.className = isOpen ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
+    }
+
+    // 設定模態框事件
+    setupModalListeners() {
+        const modals = document.querySelectorAll('.modal');
+        const closes = document.querySelectorAll('.close');
+
+        closes.forEach(close => {
+            close.addEventListener('click', (e) => {
+                const modal = e.target.closest('.modal');
+                modal.style.display = 'none';
             });
+        });
 
-            const result = await response.json().catch(() => null);
-            if (!response.ok || !result || !result.ok) {
-                console.log('Google Sheets 載入失敗，回退到 CSV 載入');
-                this.autoLoadCSV();
-                return;
+        window.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal')) {
+                e.target.style.display = 'none';
             }
+        });
+    }
 
-            const data = result.data || {};
-            if (!Array.isArray(data.books)) {
-                console.log('Google Sheets 資料格式不正確，回退到 CSV 載入');
-                this.autoLoadCSV();
-                return;
-            }
-
-            if (data.books.length > 0) {
-                // 載入 Google Sheets 資料
-                this.books = data.books;
-                this.borrowedBooks = Array.isArray(data.borrowedBooks) ? data.borrowedBooks : [];
-
-                // 處理博幼藏書資料
-                if (data.boyouBooks && typeof data.boyouBooks === 'object') {
-                    localStorage.setItem('lib_boyou_books_v1', JSON.stringify(data.boyouBooks));
-                }
-
-                // 儲存到本地
-                this.saveData();
-                
-                console.log(`成功從 Google Sheets 載入 ${this.books.length} 本書籍`);
-                this.showToast(`已從 Google Sheets 載入 ${this.books.length} 本書籍`, 'success');
-            } else {
-                console.log('Google Sheets 中沒有書籍資料，嘗試載入 CSV');
-                this.autoLoadCSV();
-            }
-
-        } catch (error) {
-            console.error('自動從 Google Sheets 載入失敗:', error);
-            console.log('回退到 CSV 載入');
-            this.autoLoadCSV();
+    // 顯示位置圖
+    showLocationMap() {
+        const modal = document.getElementById('location-map-modal');
+        if (modal) {
+            modal.style.display = 'block';
         }
     }
 
@@ -694,6 +674,61 @@ class LibrarySystem {
         } catch (error) {
             console.error('pullFromGoogleSheets error:', error);
             if (!silent) this.showToast('下載失敗，請檢查網路或 CORS 設定', 'error');
+        }
+    }
+
+    async autoLoadFromGoogleSheets() {
+        const url = this.getGoogleWebAppUrl();
+        if (!url) {
+            console.log('未設定 Google Sheets URL，跳過自動載入');
+            return;
+        }
+
+        try {
+            console.log('開始從 Google Sheets 自動載入書籍資料...');
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'pull' })
+            });
+
+            const result = await response.json().catch(() => null);
+            if (!response.ok || !result || !result.ok) {
+                console.log('Google Sheets 載入失敗:', result?.error || '未知錯誤');
+                this.showToast('Google Sheets 載入失敗，請檢查設定', 'error');
+                return;
+            }
+
+            const data = result.data || {};
+            if (!Array.isArray(data.books)) {
+                console.log('Google Sheets 資料格式不正確');
+                this.showToast('Google Sheets 資料格式錯誤', 'error');
+                return;
+            }
+
+            // 處理書籍資料
+            this.books = data.books || [];
+            this.borrowedBooks = data.borrowedBooks || [];
+            
+            // 處理博幼藏書
+            const boyouBooks = data.boyouBooks || {};
+            localStorage.setItem('lib_boyou_books_v1', JSON.stringify(boyouBooks));
+
+            this.saveData();
+            this.lastUpdateTime = new Date();
+            this.updateLastUpdateDisplay();
+            
+            if (this.books.length > 0) {
+                console.log(`成功從 Google Sheets 載入 ${this.books.length} 本書籍`);
+                this.showToast(`已從 Google Sheets 載入 ${this.books.length} 本書籍`, 'success');
+            } else {
+                console.log('Google Sheets 中沒有書籍資料');
+                this.showToast('Google Sheets 中沒有書籍資料', 'warning');
+            }
+
+        } catch (error) {
+            console.error('自動從 Google Sheets 載入失敗:', error);
+            this.showToast('Google Sheets 載入失敗，請檢查網路連線', 'error');
         }
     }
 
