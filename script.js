@@ -5,7 +5,8 @@ class LibrarySystem {
         this.borrowedBooks = [];
         this.users = [];
         this.currentUser = null;
-        this.adminUsername = 'sindy16872000';
+        this.mainAdminUsername = 'sindy16872000';
+        this.adminUsers = ['sindy16872000']; // 主要管理者和副管理者列表
         this.defaultGoogleWebAppUrl = 'https://script.google.com/macros/s/AKfycbxYZodHltoNvStyYHg3iHwflZ2W6g3vPNKftIOo3e8A22-jNL_-j_GmBbxzZwLt9Ot_/exec';
         this.autoSyncTimer = null;
         this.autoSyncLastRunAt = 0;
@@ -71,17 +72,28 @@ class LibrarySystem {
     }
 
     isAdminUser() {
-        return !!(this.currentUser && this.currentUser.username === this.adminUsername);
+        return !!(this.currentUser && this.adminUsers.includes(this.currentUser.username));
+    }
+
+    isMainAdmin() {
+        return !!(this.currentUser && this.currentUser.username === this.mainAdminUsername);
     }
 
     requireAdmin(actionName) {
         if (this.isAdminUser()) return true;
-        this.showToast(`${actionName}：僅限管理者帳號 ${this.adminUsername}`, 'error');
+        this.showToast(`${actionName}：僅限管理者帳號使用`, 'error');
+        return false;
+    }
+
+    requireMainAdmin(actionName) {
+        if (this.isMainAdmin()) return true;
+        this.showToast(`${actionName}：僅限主要管理者 ${this.mainAdminUsername} 使用`, 'error');
         return false;
     }
 
     updateAdminControls() {
         const isAdmin = this.isAdminUser();
+        const isMainAdmin = this.isMainAdmin();
         const ids = [
             'google-sync-btn',
             'google-load-btn',
@@ -105,6 +117,13 @@ class LibrarySystem {
             el.style.opacity = '';
             el.style.cursor = '';
         });
+
+        // 管理者管理按鈕只對主要管理者顯示
+        const adminManagementBtn = document.getElementById('admin-management-btn');
+        if (adminManagementBtn) {
+            adminManagementBtn.style.display = isMainAdmin ? '' : 'none';
+            adminManagementBtn.disabled = !isMainAdmin;
+        }
 
         const fileInput = document.getElementById('file-input');
         if (fileInput) {
@@ -200,8 +219,11 @@ class LibrarySystem {
         });
         const settingsBtn = document.getElementById('settings-btn');
         if (settingsBtn) settingsBtn.addEventListener('click', () => this.showSettingsModal());
+        const adminManagementBtn = document.getElementById('admin-management-btn');
+        if (adminManagementBtn) adminManagementBtn.addEventListener('click', () => this.showAdminManagementModal());
         document.getElementById('google-sync-btn').addEventListener('click', () => this.showGoogleSyncModal());
         document.getElementById('google-load-btn').addEventListener('click', () => this.loadFromGoogleSheets());
+        document.getElementById('export-books-btn').addEventListener('click', () => this.exportBooksToExcel());
         document.getElementById('file-input').addEventListener('change', (e) => this.importBooks(e));
         document.getElementById('add-book-btn').addEventListener('click', () => this.showAddBookModal());
         document.getElementById('fetch-all-covers-btn').addEventListener('click', () => this.showFetchCoversModal());
@@ -222,6 +244,8 @@ class LibrarySystem {
         document.getElementById('add-book-form').addEventListener('submit', (e) => this.handleAddBook(e));
         const settingsForm = document.getElementById('settings-form');
         if (settingsForm) settingsForm.addEventListener('submit', (e) => this.handleSaveSettings(e));
+        const addSubAdminForm = document.getElementById('add-sub-admin-form');
+        if (addSubAdminForm) addSubAdminForm.addEventListener('submit', (e) => this.handleAddSubAdmin(e));
         const editBookForm = document.getElementById('edit-book-form');
         if (editBookForm) {
             editBookForm.addEventListener('submit', (e) => this.handleEditBook(e));
@@ -397,6 +421,14 @@ class LibrarySystem {
             this.settings = { ...this.settings, ...storedSettings };
         }
 
+        // 載入副管理者列表
+        const storedAdminUsers = JSON.parse(localStorage.getItem('lib_admin_users_v1') || 'null');
+        if (storedAdminUsers && Array.isArray(storedAdminUsers)) {
+            this.adminUsers = [...new Set([this.mainAdminUsername, ...storedAdminUsers])]; // 確保主要管理者永遠在列表中
+        } else {
+            this.adminUsers = [this.mainAdminUsername];
+        }
+
         if (!this.settings.googleWebAppUrl) {
             this.settings.googleWebAppUrl = this.defaultGoogleWebAppUrl;
             localStorage.setItem('lib_settings_v1', JSON.stringify(this.settings));
@@ -536,6 +568,55 @@ class LibrarySystem {
         if (defaultYear) defaultYear.value = String(this.settings.defaultYear ?? 2024);
 
         if (modal) modal.style.display = 'block';
+    }
+
+    // 顯示副管理者管理模態框
+    showAdminManagementModal() {
+        if (!this.requireMainAdmin('管理者管理')) return;
+
+        const modal = document.getElementById('admin-management-modal');
+        if (modal) {
+            modal.style.display = 'block';
+            this.renderSubAdminsList();
+        }
+    }
+
+    // 渲染副管理者列表
+    renderSubAdminsList() {
+        const container = document.getElementById('sub-admins-list');
+        if (!container) return;
+
+        const subAdmins = this.adminUsers.filter(user => user !== this.mainAdminUsername);
+        
+        if (subAdmins.length === 0) {
+            container.innerHTML = '<div class="empty-admin-list">目前沒有副管理者</div>';
+            return;
+        }
+
+        container.innerHTML = subAdmins.map(username => `
+            <div class="admin-item">
+                <i class="fas fa-user-shield"></i>
+                <span>${username}</span>
+                <span class="admin-badge">副管理者</span>
+                <button class="remove-admin-btn" onclick="library.removeSubAdmin('${username}')">
+                    <i class="fas fa-trash"></i> 移除
+                </button>
+            </div>
+        `).join('');
+    }
+
+    // 處理新增副管理者表單
+    handleAddSubAdmin(e) {
+        e.preventDefault();
+        if (!this.requireMainAdmin('新增副管理者')) return;
+
+        const usernameInput = document.getElementById('sub-admin-username');
+        const username = usernameInput?.value?.trim();
+        
+        if (this.addSubAdmin(username)) {
+            usernameInput.value = '';
+            this.renderSubAdminsList();
+        }
     }
 
     handleSaveSettings(e) {
@@ -891,6 +972,53 @@ class LibrarySystem {
         
         // 自動上傳到 Google Sheets
         this.autoSyncToGoogleSheets();
+    }
+
+    // 儲存副管理者列表
+    saveAdminUsers() {
+        const subAdmins = this.adminUsers.filter(user => user !== this.mainAdminUsername);
+        localStorage.setItem('lib_admin_users_v1', JSON.stringify(subAdmins));
+    }
+
+    // 新增副管理者
+    addSubAdmin(username) {
+        if (!username || username.trim() === '') {
+            this.showToast('請輸入有效的使用者名稱', 'error');
+            return false;
+        }
+
+        username = username.trim();
+        
+        if (this.adminUsers.includes(username)) {
+            this.showToast('此使用者已經是管理者', 'warning');
+            return false;
+        }
+
+        this.adminUsers.push(username);
+        this.saveAdminUsers();
+        this.updateAdminControls();
+        this.showToast(`已新增副管理者：${username}`, 'success');
+        return true;
+    }
+
+    // 移除副管理者
+    removeSubAdmin(username) {
+        if (username === this.mainAdminUsername) {
+            this.showToast('無法移除主要管理者', 'error');
+            return false;
+        }
+
+        const index = this.adminUsers.indexOf(username);
+        if (index === -1) {
+            this.showToast('此使用者不是管理者', 'warning');
+            return false;
+        }
+
+        this.adminUsers.splice(index, 1);
+        this.saveAdminUsers();
+        this.updateAdminControls();
+        this.showToast(`已移除副管理者：${username}`, 'success');
+        return true;
     }
 
     // 自動同步到 Google Sheets
@@ -1489,7 +1617,37 @@ class LibrarySystem {
         }
     }
 
-    // 借閱書籍
+    // 智能借閱書籍（處理合併書籍的多書碼）
+    smartBorrowBook(book) {
+        if (!this.currentUser) {
+            this.showToast('請先登入', 'error');
+            return;
+        }
+
+        if (this.currentUser.role === 'guest' && !this.settings.guestBorrow) {
+            this.showToast('訪客無法借閱書籍', 'error');
+            return;
+        }
+
+        const isMerged = book.mergedBooks && book.mergedBooks.length > 0;
+        
+        if (!isMerged) {
+            // 單一書籍，直接借閱
+            this.borrowBook(book.id);
+            return;
+        }
+
+        // 合併書籍：找到第一本有庫存的書籍進行借閱
+        const availableBook = book.mergedBooks.find(mb => (mb.availableCopies || 0) > 0);
+        
+        if (!availableBook) {
+            this.showToast('此書籍已全部借出', 'error');
+            return;
+        }
+
+        // 借閱特定的書碼
+        this.borrowBook(availableBook.id);
+    }
     borrowBook(bookId) {
         console.log('借閱按鈕被點擊，書碼:', bookId);
         console.log('當前使用者:', this.currentUser);
@@ -1504,22 +1662,61 @@ class LibrarySystem {
             return;
         }
 
-        const book = this.books.find(b => b.id === bookId);
+        // 查找書籍，包括合併書籍中的所有書碼
+        let book = this.books.find(b => b.id === bookId);
+        let targetBookId = bookId;
+        
+        // 如果沒找到，可能是合併書籍中的其他書碼
+        if (!book) {
+            book = this.books.find(b => 
+                Array.isArray(b.bookIds) && b.bookIds.includes(bookId)
+            );
+            if (book) {
+                targetBookId = book.id; // 使用主要書碼進行借閱記錄
+            }
+        }
+        
         if (!book) {
             this.showToast('書籍不存在', 'error');
             return;
         }
 
-        if (book.availableCopies <= 0) {
+        // 計算合併書籍的總可用冊數
+        let totalAvailableCopies;
+        let totalCopies;
+        
+        if (book.mergedBooks && book.mergedBooks.length > 0) {
+            // 合併書籍：計算所有合併書籍的可用冊數
+            totalAvailableCopies = book.totalAvailableCopies || 0;
+            totalCopies = book.totalCopies || 1;
+        } else {
+            // 單一書籍
+            totalAvailableCopies = book.availableCopies || 0;
+            totalCopies = book.copies || 1;
+        }
+
+        if (totalAvailableCopies <= 0) {
             this.showToast('此書籍已全部借出', 'error');
             return;
         }
 
-        // 允許同一使用者借多本（若館藏有多本），但最多不超過該書總冊數
-        const userBorrowedCount = this.borrowedBooks.filter(
-            b => b.bookId === bookId && b.userId === this.currentUser.username && !b.returnedAt
-        ).length;
-        if (userBorrowedCount >= (book.copies || 1)) {
+        // 檢查用戶已借閱數量（包括合併書籍）
+        let userBorrowedCount;
+        if (book.mergedBooks && book.mergedBooks.length > 0) {
+            // 合併書籍：檢查所有合併書籍的借閱記錄
+            userBorrowedCount = book.mergedBooks.reduce((count, mergedBook) => {
+                return count + this.borrowedBooks.filter(
+                    b => b.bookId === mergedBook.id && b.userId === this.currentUser.username && !b.returnedAt
+                ).length;
+            }, 0);
+        } else {
+            // 單一書籍
+            userBorrowedCount = this.borrowedBooks.filter(
+                b => b.bookId === targetBookId && b.userId === this.currentUser.username && !b.returnedAt
+            ).length;
+        }
+
+        if (userBorrowedCount >= totalCopies) {
             this.showToast('您已借滿此書所有冊數', 'error');
             return;
         }
@@ -1529,7 +1726,8 @@ class LibrarySystem {
 
         const borrowRecord = {
             id: Date.now().toString(),
-            bookId,
+            bookId: targetBookId,
+            actualBookId: bookId, // 記錄實際借閱的書碼
             bookTitle: book.title,
             userId: this.currentUser.username,
             borrowDate: borrowDate.toISOString(),
@@ -1538,7 +1736,20 @@ class LibrarySystem {
         };
 
         this.borrowedBooks.push(borrowRecord);
-        book.availableCopies--;
+        
+        // 減少對應書籍的可用冊數
+        if (book.mergedBooks && book.mergedBooks.length > 0) {
+            // 合併書籍：找到實際借閱的書籍並減少其可用冊數
+            const actualBook = book.mergedBooks.find(mb => mb.id === bookId);
+            if (actualBook) {
+                actualBook.availableCopies--;
+            }
+            // 更新合併書籍的總可用冊數
+            book.totalAvailableCopies--;
+        } else {
+            // 單一書籍
+            book.availableCopies--;
+        }
 
         this.saveData();
         // 所有使用者：只要借閱成功就自動上傳到 Google Sheets
@@ -1655,6 +1866,24 @@ class LibrarySystem {
 
         // 合併後排序
         mergedBooks.sort((a, b) => {
+            // 新書優先：如果有 addedAt 時間戳，新書總是在前面
+            const aAddedAt = Number(a.addedAt) || 0;
+            const bAddedAt = Number(b.addedAt) || 0;
+            
+            // 如果兩本書都有 addedAt 時間戳，新書（時間戳越大）排在前面
+            if (aAddedAt > 0 && bAddedAt > 0 && aAddedAt !== bAddedAt) {
+                return bAddedAt - aAddedAt; // 降序排列，新書在前
+            }
+            
+            // 如果只有一本有 addedAt，有 addedAt 的（新書）排在前面
+            if (aAddedAt > 0 && bAddedAt === 0) {
+                return -1; // a 在前
+            }
+            if (bAddedAt > 0 && aAddedAt === 0) {
+                return 1;  // b 在前
+            }
+            
+            // 如果都沒有 addedAt 或時間戳相同，使用原來的排序邏輯
             if (sortBy === 'code') {
                 const aCode = String(a.id || '').toUpperCase();
                 const bCode = String(b.id || '').toUpperCase();
@@ -1690,6 +1919,7 @@ class LibrarySystem {
             const genreOrder = ['繪本', '橋梁書', '文字書'];
             const aGenreIndex = genreOrder.indexOf(a.genre);
             const bGenreIndex = genreOrder.indexOf(b.genre);
+
             if (aGenreIndex !== bGenreIndex) {
                 return aGenreIndex - bGenreIndex;
             }
@@ -1923,7 +2153,7 @@ class LibrarySystem {
 
         // 顯示書碼資訊
         const bookIdsDisplay = isMerged 
-            ? `${book.id} 等${book.bookIds.length}本` 
+            ? book.bookIds.join(', ') 
             : book.id;
 
         const canManageBooks = this.isAdminUser();
@@ -1968,12 +2198,24 @@ class LibrarySystem {
                         ${isMerged ? `
                         <div class="book-info-item">
                             <i class="fas fa-list"></i>
-                            <span>書碼：${book.bookIds.join(', ')}</span>
+                            <div class="book-codes-list">
+                                ${book.mergedBooks.map((mergedBook, index) => {
+                                    const isAvailable = (mergedBook.availableCopies || 0) > 0;
+                                    const statusClass = isAvailable ? 'available' : 'borrowed';
+                                    const statusText = isAvailable ? '可借' : '已借出';
+                                    return `
+                                        <div class="book-code-item ${statusClass}">
+                                            <span class="code">${mergedBook.id}</span>
+                                            <span class="status">${statusText}</span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
                         </div>` : ''}
                     </div>
                     <div class="book-actions">
                         ${canBorrow ? 
-                            `<button class="btn btn-primary btn-small" onclick="library.borrowBook('${book.id}')">
+                            `<button class="btn btn-primary btn-small" onclick="library.smartBorrowBook(${JSON.stringify(book).replace(/"/g, '&quot;')})">
                                 <i class="fas fa-book-reader"></i> ${userBorrowedCount > 0 ? '再借' : '借閱'}
                             </button>` : 
                             `<button class="btn btn-outline btn-small" disabled>
@@ -2662,6 +2904,51 @@ class LibrarySystem {
         const filename = `借閱清單_${this.currentUser.username}_${dateStr}.xlsx`;
         XLSX.writeFile(wb, filename);
         this.showToast('已匯出借閱清單', 'success');
+    }
+
+    // 匯出書籍清單為 Excel - 任何人都可以使用
+    exportBooksToExcel() {
+        if (!this.books || this.books.length === 0) {
+            this.showToast('沒有可匯出的書籍資料', 'warning');
+            return;
+        }
+
+        const header = ['書碼', '書名', '作者', '類別', '出版年份', '冊數', '可借閱冊數', '封面網址'];
+        const rows = this.books.map(book => {
+            const genre = this.getGenreFromId(book.id);
+            const availableCopies = book.copies - (book.borrowedCount || 0);
+            return [
+                book.id,
+                book.title || '',
+                book.author || '',
+                genre,
+                book.year || '',
+                book.copies || 1,
+                Math.max(0, availableCopies),
+                book.coverUrl || ''
+            ];
+        });
+
+        const aoa = [header, ...rows];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        
+        // 設定欄位寬度
+        const colWidths = header.map((h, idx) => {
+            const maxLen = Math.max(
+                h.length,
+                ...rows.map(row => (row[idx] !== undefined && row[idx] !== null ? String(row[idx]).length : 0))
+            );
+            return { wch: Math.min(Math.max(maxLen + 2, 8), 50) };
+        });
+        ws['!cols'] = colWidths;
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '書籍清單');
+        
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const filename = `書籍清單_${dateStr}.xlsx`;
+        XLSX.writeFile(wb, filename);
+        this.showToast(`已匯出 ${this.books.length} 本書籍資料`, 'success');
     }
 
     // 顯示搜尋封面模態框

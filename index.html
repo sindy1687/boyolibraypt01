@@ -101,6 +101,96 @@
             }
         }
 
+        /* 副管理者管理樣式 */
+        .admin-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #f8fafc;
+        }
+
+        .admin-section h3 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .admin-section h4 {
+            color: #718096;
+            margin-bottom: 10px;
+            font-size: 1rem;
+        }
+
+        .admin-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            background: white;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .admin-item.main-admin {
+            border-color: #f6ad55;
+            background: #fffdf7;
+        }
+
+        .admin-item i {
+            color: #667eea;
+        }
+
+        .admin-item.main-admin i {
+            color: #f6ad55;
+        }
+
+        .admin-badge {
+            background: #667eea;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            margin-left: auto;
+        }
+
+        .main-admin .admin-badge {
+            background: #f6ad55;
+        }
+
+        .remove-admin-btn {
+            margin-left: auto;
+            background: #f56565;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+
+        .remove-admin-btn:hover {
+            background: #e53e3e;
+        }
+
+        .add-admin-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        #sub-admins-list {
+            min-height: 60px;
+        }
+
+        .empty-admin-list {
+            color: #718096;
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }
+
     </style>
 </head>
 <body>
@@ -168,11 +258,17 @@
                 <button id="settings-btn" class="btn btn-info">
                     <i class="fas fa-cog"></i> 系統設定
                 </button>
+                <button id="admin-management-btn" class="btn btn-warning">
+                    <i class="fas fa-user-shield"></i> 管理者管理
+                </button>
                 <button id="google-sync-btn" class="btn btn-success">
                     <i class="fas fa-cloud-upload-alt"></i> Google Sheets 同步
                 </button>
                 <button id="google-load-btn" class="btn btn-info">
                     <i class="fas fa-cloud-download-alt"></i> 從 Google Sheets 載入
+                </button>
+                <button id="export-books-btn" class="btn btn-success">
+                    <i class="fas fa-file-export"></i> 匯出書籍清單
                 </button>
                 <button id="import-btn" class="btn btn-success">
                     <i class="fas fa-file-import"></i> 匯入 Excel 書單
@@ -448,6 +544,43 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- 副管理者管理模態框 -->
+    <div id="admin-management-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2><i class="fas fa-user-shield"></i> 管理者管理</h2>
+            
+            <div class="admin-section">
+                <h3>主要管理者</h3>
+                <div class="admin-item main-admin">
+                    <i class="fas fa-crown"></i>
+                    <span>sindy16872000</span>
+                    <span class="admin-badge">主要</span>
+                </div>
+            </div>
+
+            <div class="admin-section">
+                <h3>副管理者列表</h3>
+                <div id="sub-admins-list">
+                    <!-- 副管理者列表將在這裡動態生成 -->
+                </div>
+                
+                <div class="add-admin-section">
+                    <h4>新增副管理者</h4>
+                    <form id="add-sub-admin-form">
+                        <div class="form-group">
+                            <label for="sub-admin-username">使用者名稱：</label>
+                            <input type="text" id="sub-admin-username" placeholder="輸入要新增的使用者名稱" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> 新增副管理者
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 
