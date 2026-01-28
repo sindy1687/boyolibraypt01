@@ -14,6 +14,17 @@ class LibrarySystem {
         this.autoSyncDebounceMs = 1500;
         this.pushNowInFlight = false;
         
+        // API 節流與重試機制
+        this.lastApiRequestTime = 0;
+        this.apiRequestDelay = 2000; // 2 秒間隔，避免 429 錯誤
+        this.apiRetryConfig = {
+            maxRetries: 5, // 增加重試次數
+            baseDelay: 2000, // 增加基礎延遲
+            maxDelay: 16000 // 增加最大延遲
+        };
+        this.apiRequestQueue = [];
+        this.apiRequestInProgress = false;
+        
         // 搜尋狀態控制
         this.searchState = {
             isRunning: false,
@@ -74,6 +85,8 @@ class LibrarySystem {
         const ids = [
             'google-sync-btn',
             'google-load-btn',
+            'google-push-btn',
+            'google-pull-btn',
             'settings-btn',
             'import-btn',
             'add-book-btn',
@@ -101,6 +114,9 @@ class LibrarySystem {
     }
 
     async pushToGoogleSheetsNow() {
+        // 只有管理員才能執行上傳
+        if (!this.isAdminUser()) return;
+        
         const url = this.getGoogleWebAppUrl();
         if (!url) return;
         if (this.pushNowInFlight) return;
@@ -148,6 +164,9 @@ class LibrarySystem {
     }
 
     async autoPushToGoogleSheets() {
+        // 只有管理員才能執行自動上傳
+        if (!this.isAdminUser()) return;
+        
         const url = this.getGoogleWebAppUrl();
         if (!url) return;
 
@@ -576,6 +595,10 @@ class LibrarySystem {
 
     async pushToGoogleSheets(options = {}) {
         const { silent = false } = options;
+        
+        // 檢查管理員權限（非靜默操作需要權限）
+        if (!silent && !this.requireAdmin('上傳到 Google Sheets')) return;
+        
         const url = this.getGoogleWebAppUrl();
         if (!url) {
             if (!silent) this.showToast('請先由管理者設定 Google Sheets 同步網址', 'error');
@@ -2112,9 +2135,11 @@ class LibrarySystem {
             if (author) q.push(`inauthor:${author}`);
             const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q.join('+'))}&maxResults=5`;
 
-            const res = await fetch(url);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
+            // 使用 API 隊列機制
+            const data = await this.enqueueApiRequest(async () => {
+                return await this.fetchWithRetry(url);
+            });
+            
             const item = data?.items?.[0];
             const info = item?.volumeInfo;
             if (!info) {
@@ -2134,9 +2159,91 @@ class LibrarySystem {
             if (coverInput && coverUrl) coverInput.value = coverUrl;
 
             this.showToast('已自動回填書籍資訊', 'success');
-        } catch (err) {
-            console.error('autoFillBookInfo error:', err);
-            this.showToast('自動搜尋失敗，請檢查網路或稍後再試', 'error');
+        } catch (error) {
+            console.error('autoFillBookInfo error:', error);
+            this.handleApiError(error, '自動填入書籍資訊失敗');
+        }
+    }
+
+    // API 請求隊列處理
+    async enqueueApiRequest(requestFn) {
+        return new Promise((resolve, reject) => {
+            this.apiRequestQueue.push({ requestFn, resolve, reject });
+            this.processApiQueue();
+        });
+    }
+
+    async processApiQueue() {
+        if (this.apiRequestInProgress || this.apiRequestQueue.length === 0) return;
+        
+        this.apiRequestInProgress = true;
+        
+        while (this.apiRequestQueue.length > 0) {
+            const { requestFn, resolve, reject } = this.apiRequestQueue.shift();
+            
+            // 確保請求間隔
+            const now = Date.now();
+            const timeSinceLastRequest = now - this.lastApiRequestTime;
+            if (timeSinceLastRequest < this.apiRequestDelay) {
+                const waitTime = this.apiRequestDelay - timeSinceLastRequest;
+                await new Promise(r => setTimeout(r, waitTime));
+            }
+            
+            this.lastApiRequestTime = Date.now();
+            
+            try {
+                const result = await requestFn();
+                resolve(result);
+            } catch (error) {
+                reject(error);
+            }
+        }
+        
+        this.apiRequestInProgress = false;
+    }
+
+    // 帶重試與指數退避的 fetch
+    async fetchWithRetry(url, options = {}) {
+        let lastError;
+        for (let attempt = 1; attempt <= this.apiRetryConfig.maxRetries; attempt++) {
+            try {
+                const res = await fetch(url, options);
+                if (res.ok) return await res.json();
+                if (res.status === 429) {
+                    // 429: Too Many Requests，使用更長的固定延遲
+                    const delay = Math.min(
+                        this.apiRetryConfig.baseDelay * attempt, // 線性增長而不是指數
+                        this.apiRetryConfig.maxDelay
+                    );
+                    console.warn(`API 429，等待 ${delay}ms 後重試 (${attempt}/${this.apiRetryConfig.maxRetries})`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue;
+                }
+                throw new Error(`HTTP ${res.status}`);
+            } catch (err) {
+                lastError = err;
+                if (attempt === this.apiRetryConfig.maxRetries) break;
+                const delay = Math.min(
+                    this.apiRetryConfig.baseDelay * Math.pow(2, attempt - 1),
+                    this.apiRetryConfig.maxDelay
+                );
+                console.warn(`API 請求失敗，等待 ${delay}ms 後重試 (${attempt}/${this.apiRetryConfig.maxRetries})`, err.message);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+        throw lastError;
+    }
+
+    // 統一的 API 錯誤處理
+    handleApiError(error, fallbackMessage = 'API 請求失敗') {
+        if (error.message.includes('429')) {
+            this.showToast('請求過於頻繁，請等待 10-20 秒後再試', 'error');
+        } else if (error.message.includes('499') || error.message.includes('antivirus')) {
+            this.showToast('請求被防毒軟體阻擋，請暫時停用防毒或換網路', 'error');
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            this.showToast('網路連線異常，請檢查網路狀態', 'error');
+        } else {
+            this.showToast(fallbackMessage, 'error');
         }
     }
 
@@ -2943,10 +3050,10 @@ class LibrarySystem {
             const query = encodeURIComponent(searchTerm.trim());
             const apiUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=5&langRestrict=zh`;
 
-            const response = await fetch(apiUrl);
-            if (!response.ok) return [];
-
-            const data = await response.json();
+            // 使用 API 隊列機制
+            const data = await this.enqueueApiRequest(async () => {
+                return await this.fetchWithRetry(apiUrl);
+            });
             
             if (!data.items || data.items.length === 0) return [];
 
@@ -2958,6 +3065,7 @@ class LibrarySystem {
 
         } catch (error) {
             console.error('Google Books 搜尋失敗:', error);
+            this.handleApiError(error, 'Google Books 搜尋失敗');
             return [];
         }
     }
@@ -2968,10 +3076,10 @@ class LibrarySystem {
             const query = encodeURIComponent(searchTerm.trim());
             const apiUrl = `https://openlibrary.org/search.json?q=${query}&limit=5&language=chi`;
 
-            const response = await fetch(apiUrl);
-            if (!response.ok) return [];
-
-            const data = await response.json();
+            // 使用 API 隊列機制
+            const data = await this.enqueueApiRequest(async () => {
+                return await this.fetchWithRetry(apiUrl);
+            });
             
             if (!data.docs || data.docs.length === 0) return [];
 
@@ -2999,6 +3107,7 @@ class LibrarySystem {
 
         } catch (error) {
             console.error('Open Library 搜尋失敗:', error);
+            this.handleApiError(error, 'Open Library 搜尋失敗');
             return [];
         }
     }

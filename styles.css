@@ -693,31 +693,31 @@ body {
     gap: 10px;
 }
 
-/* 模態框 */
-.modal {
-    display: none;
-    position: fixed;
-    z-index: 1000;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(5px);
-}
+ /* 模態框 */
+ .modal {
+     display: none;
+     position: fixed;
+     z-index: 2000;
+     left: 0;
+     top: 0;
+     width: 100%;
+     height: 100%;
+     background-color: rgba(0, 0, 0, 0.5);
+     backdrop-filter: blur(5px);
+ }
 
-.modal-content {
-    background-color: white;
-    margin: 5% auto;
-    padding: 30px;
-    border-radius: 15px;
-    width: 90%;
-    max-width: 500px;
-    position: relative;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
-}
+ .modal-content {
+     background-color: white;
+     margin: 5% auto;
+     padding: 30px;
+     border-radius: 15px;
+     width: 90%;
+     max-width: 500px;
+     position: relative;
+     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+     max-height: calc(100vh - 40px);
+     overflow-y: auto;
+ }
 
 .close {
     color: #aaa;
@@ -862,24 +862,72 @@ body {
 @media (max-width: 768px) {
     .container {
         padding: 10px;
+        padding-bottom: 110px;
     }
     
     .header {
         flex-direction: column;
         gap: 15px;
         text-align: center;
+        padding: 16px 18px;
+    }
+
+    .header h1 {
+        font-size: 1.5rem;
+    }
+
+    .user-info {
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    #current-user {
+        width: 100%;
+        text-align: center;
+    }
+
+    .user-info .btn {
+        flex: 1;
+        justify-content: center;
+        min-width: 120px;
     }
     
     .search-bar {
         flex-direction: column;
     }
+
+    .search-bar .btn {
+        width: 100%;
+        justify-content: center;
+    }
     
     .filter-section {
         flex-direction: column;
     }
+
+    .filter-section select {
+        width: 100%;
+    }
     
     .admin-section {
         flex-direction: column;
+    }
+
+    .admin-section .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .books-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .view-controls {
+        width: 100%;
+        justify-content: flex-end;
     }
     
     .stats-panel {
@@ -977,6 +1025,56 @@ body {
     .borrowed-actions {
         width: 100%;
         justify-content: center;
+    }
+
+    .progress-info {
+        grid-template-columns: 1fr;
+    }
+
+    .toast {
+        left: 10px;
+        right: 10px;
+        width: auto;
+        max-width: calc(100vw - 20px);
+    }
+
+    .modal-content {
+        margin: 10px auto;
+        width: calc(100% - 20px);
+        max-height: calc(100vh - 20px);
+        padding: 18px;
+    }
+
+    .input-with-button {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .input-with-button .btn-small {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .progress-controls {
+        flex-wrap: wrap;
+    }
+
+    .progress-controls .btn {
+        flex: 1;
+    }
+
+    .search-result-item {
+        flex-direction: column;
+    }
+
+    .search-result-cover {
+        margin-right: 0;
+        margin-bottom: 12px;
+    }
+
+    .search-result-header {
+        flex-direction: column;
+        gap: 8px;
     }
 }
 
