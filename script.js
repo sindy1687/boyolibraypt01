@@ -1637,16 +1637,85 @@ class LibrarySystem {
             return;
         }
 
-        // 合併書籍：找到第一本有庫存的書籍進行借閱
-        const availableBook = book.mergedBooks.find(mb => (mb.availableCopies || 0) > 0);
+        // 合併書籍：找到所有有庫存的書籍
+        const availableBooks = book.mergedBooks.filter(mb => (mb.availableCopies || 0) > 0);
         
-        if (!availableBook) {
+        if (availableBooks.length === 0) {
             this.showToast('此書籍已全部借出', 'error');
             return;
         }
 
-        // 借閱特定的書碼
-        this.borrowBook(availableBook.id);
+        if (availableBooks.length === 1) {
+            // 只有一本可借閱，直接借閱
+            this.borrowBook(availableBooks[0].id);
+            return;
+        }
+
+        // 多本可借閱，顯示選擇畫面
+        this.showBookSelectionModal(availableBooks, book.title);
+    }
+
+    // 顯示書籍選擇模態框
+    showBookSelectionModal(availableBooks, bookTitle) {
+        const modal = document.getElementById('book-selection-modal');
+        const list = document.getElementById('book-selection-list');
+        
+        // 生成書籍選項 HTML
+        list.innerHTML = availableBooks.map(book => {
+            const availableCopies = book.availableCopies || 0;
+            const totalCopies = book.copies || 1;
+            const statusClass = availableCopies >= 3 ? 'available' : 'limited';
+            const statusText = availableCopies >= 3 ? '庫存充足' : `僅剩 ${availableCopies} 本`;
+            
+            // 處理封面圖片
+            let coverHtml = '';
+            if (book.coverUrl) {
+                coverHtml = `<img src="${book.coverUrl}" alt="${book.title}" class="book-selection-cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="book-selection-cover" style="display: none;">
+                        <i class="fas fa-book"></i>
+                    </div>`;
+            } else {
+                coverHtml = `<div class="book-selection-cover">
+                    <i class="fas fa-book"></i>
+                </div>`;
+            }
+            
+            return `
+                <div class="book-selection-item" onclick="library.selectBookToBorrow('${book.id}')">
+                    ${coverHtml}
+                    <div class="book-selection-info">
+                        <div class="book-selection-code">${book.id}</div>
+                        <div class="book-selection-title">${book.title}</div>
+                        <div class="book-selection-status ${statusClass}">
+                            ${statusText} (共 ${totalCopies} 本)
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        // 顯示模態框
+        modal.style.display = 'block';
+        
+        // 設定關閉事件
+        const closeBtn = modal.querySelector('.close');
+        closeBtn.onclick = () => {
+            modal.style.display = 'none';
+        };
+        
+        // 點擊背景關閉
+        window.onclick = (event) => {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        };
+    }
+
+    // 選擇要借閱的書籍
+    selectBookToBorrow(bookId) {
+        const modal = document.getElementById('book-selection-modal');
+        modal.style.display = 'none';
+        this.borrowBook(bookId);
     }
     borrowBook(bookId) {
         console.log('借閱按鈕被點擊，書碼:', bookId);

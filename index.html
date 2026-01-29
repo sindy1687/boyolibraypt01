@@ -191,6 +191,113 @@
             padding: 20px;
         }
 
+        /* 書籍選擇模態框樣式 */
+        .book-selection-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 10px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .book-selection-item:hover {
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+        }
+
+        .book-selection-item.selected {
+            border-color: #667eea;
+            background: #f7fafc;
+        }
+
+        .book-selection-cover {
+            width: 60px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 4px;
+            margin-right: 15px;
+            background: #f7fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #a0aec0;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .book-selection-info {
+            flex: 1;
+        }
+
+        .book-selection-code {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .book-selection-title {
+            font-weight: 500;
+            color: #2d3748;
+            margin-bottom: 3px;
+        }
+
+        .book-selection-status {
+            font-size: 0.85rem;
+            color: #718096;
+        }
+
+        .book-selection-status.available {
+            color: #48bb78;
+        }
+
+        .book-selection-status.limited {
+            color: #ed8936;
+        }
+
+        #book-selection-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+
+        /* 書籍列表標題區域樣式 */
+        .books-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .books-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .view-controls {
+            display: flex;
+            gap: 5px;
+        }
+
+        @media (max-width: 768px) {
+            .books-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+
+            .books-header-actions {
+                width: 100%;
+                justify-content: space-between;
+            }
+        }
+
     </style>
 </head>
 <body>
@@ -327,13 +434,18 @@
         <div class="books-section">
             <div class="books-header">
                 <h2><i class="fas fa-book"></i> 館藏列表</h2>
-                <div class="view-controls">
-                    <button id="grid-view" class="view-btn active" title="網格視圖">
-                        <i class="fas fa-th"></i>
+                <div class="books-header-actions">
+                    <button id="add-book-in-list-btn" class="btn btn-primary" style="display: none;">
+                        <i class="fas fa-plus"></i> 新增書籍
                     </button>
-                    <button id="list-view" class="view-btn" title="列表視圖">
-                        <i class="fas fa-list"></i>
-                    </button>
+                    <div class="view-controls">
+                        <button id="grid-view" class="view-btn active" title="網格視圖">
+                            <i class="fas fa-th"></i>
+                        </button>
+                        <button id="list-view" class="view-btn" title="列表視圖">
+                            <i class="fas fa-list"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
             <div id="books-container" class="books-grid">
@@ -734,6 +846,22 @@
                         <i class="fas fa-stop"></i> 停止
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 書籍選擇模態框 -->
+    <div id="book-selection-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2><i class="fas fa-book"></i> 選擇要借閱的書籍</h2>
+            <div id="book-selection-list">
+                <!-- 書籍選項將在這裡動態生成 -->
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-outline" onclick="this.closest('.modal').style.display='none'">
+                    <i class="fas fa-times"></i> 取消
+                </button>
             </div>
         </div>
     </div>
