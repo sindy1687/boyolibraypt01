@@ -76,6 +76,11 @@ class LibrarySystem {
             available = available.slice(Math.min(unknownOccupyCount, available.length));
         }
 
+        const availableCopies = parseInt(book?.availableCopies, 10);
+        if (Number.isFinite(availableCopies) && availableCopies >= 0 && available.length > availableCopies) {
+            available = available.slice(0, availableCopies);
+        }
+
         return available;
     }
 
@@ -160,8 +165,15 @@ class LibrarySystem {
     async chooseCopyIdForBorrow(book) {
         const availableCopyIds = this.getAvailableCopyIds(book);
         if (availableCopyIds.length <= 0) return null;
-        if (availableCopyIds.length === 1) return availableCopyIds[0];
 
+        console.log('chooseCopyIdForBorrow - availableCopyIds:', availableCopyIds, 'length:', availableCopyIds.length);
+
+        if (availableCopyIds.length === 1) {
+            console.log('只有 1 本可借，直接返回');
+            return availableCopyIds[0];
+        }
+
+        console.log('多本可借，彈出選書碼視窗');
         return await this.showChooseCopyModal(book, availableCopyIds);
     }
 
@@ -3414,7 +3426,7 @@ class LibrarySystem {
     }
 
     // 借閱書籍
-    async borrowBook(bookId) {
+    async borrowBook(bookId, titleKey = null) {
         console.log('借閱按鈕被點擊，書碼:', bookId);
         console.log('當前使用者:', this.currentUser);
         
@@ -3428,13 +3440,35 @@ class LibrarySystem {
             return;
         }
 
-        const book = this.books.find(b => b.id === bookId);
+        let book = this.books.find(b => b.id === bookId);
         if (!book) {
             this.showToast('書籍不存在', 'error');
             return;
         }
 
-        if (book.availableCopies <= 0) {
+        // 若從合併書卡觸發，改以書名彙總所有書碼/可借數量
+        if (titleKey) {
+            const normalizedTitle = this.normalizeTitle(book.title);
+            if (normalizedTitle === titleKey) {
+                const candidates = this.books.filter(b => this.normalizeTitle(b.title) === titleKey);
+                const mergedBookIds = candidates.map(b => b.id);
+                const mergedAvailable = candidates.reduce((sum, b) => sum + (parseInt(b.availableCopies, 10) || 0), 0);
+                const mergedCopies = candidates.reduce((sum, b) => sum + (parseInt(b.copies, 10) || 0), 0);
+
+                book = {
+                    ...book,
+                    bookIds: mergedBookIds,
+                    copies: mergedCopies || mergedBookIds.length || 1,
+                    availableCopies: mergedAvailable
+                };
+            }
+        }
+        if (!book) {
+            this.showToast('書籍不存在', 'error');
+            return;
+        }
+
+        if ((parseInt(book.availableCopies, 10) || 0) <= 0) {
             this.showToast('此書籍已全部借出', 'error');
             return;
         }
@@ -3446,8 +3480,9 @@ class LibrarySystem {
         }
 
         // 允許同一使用者借多本（若館藏有多本），但最多不超過該書總冊數
+        const groupBookId = bookId;
         const userBorrowedCount = this.borrowedBooks.filter(
-            b => b.bookId === bookId && b.userId === this.currentUser.username && !b.returnedAt
+            b => b.bookId === groupBookId && b.userId === this.currentUser.username && !b.returnedAt
         ).length;
         if (userBorrowedCount >= (book.copies || 1)) {
             this.showToast('您已借滿此書所有冊數', 'error');
@@ -3463,7 +3498,7 @@ class LibrarySystem {
 
         const borrowRecord = {
             id: Date.now().toString(),
-            bookId,
+            bookId: groupBookId,
             copyId,
             bookTitle: book.title,
             userId: this.currentUser.username,
@@ -3473,7 +3508,12 @@ class LibrarySystem {
         };
 
         this.borrowedBooks.push(borrowRecord);
-        book.availableCopies--;
+
+        const bookToDecrement = this.books.find(b => b.id === copyId) || this.books.find(b => b.id === groupBookId);
+        if (bookToDecrement) {
+            const cur = parseInt(bookToDecrement.availableCopies, 10) || 0;
+            bookToDecrement.availableCopies = Math.max(0, cur - 1);
+        }
 
         this.saveData();
         // 所有使用者：只要借閱成功就自動上傳到 Google Sheets
@@ -3499,10 +3539,12 @@ class LibrarySystem {
         }
 
         borrowRecord.returnedAt = new Date().toISOString();
-        
-        const book = this.books.find(b => b.id === borrowRecord.bookId);
+        // 更新書籍可借數量（優先依 copyId 回補到正確書碼）
+        const targetId = borrowRecord.copyId || borrowRecord.bookId;
+        const book = this.books.find(b => b.id === targetId) || this.books.find(b => b.id === borrowRecord.bookId);
         if (book) {
-            book.availableCopies++;
+            const cur = parseInt(book.availableCopies, 10) || 0;
+            book.availableCopies = cur + 1;
         }
 
         this.saveData();
@@ -3827,6 +3869,7 @@ class LibrarySystem {
     createBookCard(book) {
         // 判斷是否為合併書籍
         const isMerged = book.mergedBooks && book.mergedBooks.length > 1;
+        const titleKey = this.normalizeTitle(book.title);
 
         // 新增書籍記號（7天內視為新書）
         const addedAt = Number(book.addedAt) || 0;
@@ -3908,11 +3951,13 @@ class LibrarySystem {
                     </div>
                     <div class="book-actions">
                         ${canBorrow ? 
-                            `<button class="btn btn-primary btn-small" onclick="library.borrowBook('${book.id}')">
-                                <i class="fas fa-book-reader"></i> ${userBorrowedCount > 0 ? '再借' : '借閱'}
+                            (isMerged
+                                ? `<button class="btn btn-primary btn-small" onclick="library.borrowBook('${book.id}', '${titleKey}')">`
+                                : `<button class="btn btn-primary btn-small" onclick="library.borrowBook('${book.id}')">`) +
+                                `<i class="fas fa-book-reader"></i> ${userBorrowedCount > 0 ? '再借' : '借閱'}
                             </button>` : 
                             `<button class="btn btn-outline btn-small" disabled>
-                                <i class="fas fa-ban"></i> 無法借閱
+                                <i class="fas fa-ban"></i> 不可借
                             </button>`
                         }
                         ${canManageBooks ? `
