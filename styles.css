@@ -506,10 +506,6 @@ body {
     border-radius: 4px;
     font-size: 0.8rem;
     font-weight: 600;
-    line-height: 1.2;
-    word-wrap: break-word;
-    word-break: break-all;
-    max-width: 100%;
 }
 
 /* 類別特定的書碼顏色 */
@@ -1614,62 +1610,4 @@ body {
 
 .empty-state p {
     font-size: 1rem;
-}
-
-/* 書碼列表樣式 */
-.book-codes-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-top: 8px;
-}
-
-.book-code-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 0.85rem;
-    border: 1px solid #e2e8f0;
-}
-
-.book-code-item.available {
-    background: #f0fff4;
-    border-color: #9ae6b4;
-}
-
-.book-code-item.borrowed {
-    background: #fff5f5;
-    border-color: #feb2b2;
-}
-
-.book-code-item .code {
-    font-weight: 600;
-    color: #2d3748;
-}
-
-.book-code-item.available .code {
-    color: #22543d;
-}
-
-.book-code-item.borrowed .code {
-    color: #742a2a;
-}
-
-.book-code-item .status {
-    font-size: 0.75rem;
-    padding: 2px 6px;
-    border-radius: 10px;
-    font-weight: 500;
-}
-
-.book-code-item.available .status {
-    background: #9ae6b4;
-    color: #22543d;
-}
-
-.book-code-item.borrowed .status {
-    background: #feb2b2;
-    color: #742a2a;
 }

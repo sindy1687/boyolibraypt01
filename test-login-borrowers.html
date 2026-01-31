@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登入系統與借閱者管理測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+        .user-info { background: #f0f8ff; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .borrowed-item { background: #f9f9f9; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #007bff; }
+        .borrower-item { background: #fff3cd; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #ffc107; }
+        .overdue { border-left-color: #f56565; background: #fff5f5; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn-success { background: #28a745; color: white; }
+        .result { margin: 10px 0; padding: 10px; background: #e7f3ff; border-radius: 4px; }
+        .form-group { margin: 10px 0; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select, .form-group textarea { 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            box-sizing: border-box;
+        }
+        .form-group textarea { resize: vertical; }
+    </style>
+</head>
+<body>
+    <h1>登入系統與借閱者管理測試</h1>
+    
+    <div class="test-section">
+        <h2>模擬登入系統</h2>
+        <div class="form-group">
+            <label>使用者名稱：</label>
+            <input type="text" id="test-username" placeholder="輸入使用者名稱">
+        </div>
+        <div class="form-group">
+            <label>真實姓名：</label>
+            <input type="text" id="test-realname" placeholder="輸入真實姓名">
+        </div>
+        <div class="form-group">
+            <label>電話號碼：</label>
+            <input type="tel" id="test-phone" placeholder="0912345678">
+        </div>
+        <div class="form-group">
+            <label>角色：</label>
+            <select id="test-role">
+                <option value="guest">訪客</option>
+                <option value="student">學生</option>
+                <option value="staff">老師/館員</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" onclick="testLogin()">模擬登入</button>
+        <button class="btn btn-info" onclick="testAdminLogin()">管理員登入</button>
+        <button class="btn btn-warning" onclick="testLogout()">登出</button>
+    </div>
+
+    <div class="test-section">
+        <h2>模擬借閱記錄</h2>
+        <button class="btn btn-primary" onclick="createSampleBorrowedRecords()">建立範例借閱記錄</button>
+        <button class="btn btn-info" onclick="showBorrowedRecords()">顯示借閱記錄</button>
+        <button class="btn btn-warning" onclick="createOverdueRecords()">建立逾期記錄</button>
+    </div>
+
+    <div class="test-section">
+        <h2>借閱者清單功能</h2>
+        <button class="btn btn-primary" onclick="testBorrowersList()">顯示借閱者清單</button>
+        <button class="btn btn-warning" onclick="testOverdueBorrowers()">顯示逾期借閱者</button>
+        <button class="btn btn-info" onclick="testSearchBorrowers()">搜尋借閱者</button>
+    </div>
+
+    <div class="test-section">
+        <h2>逾期通知功能</h2>
+        <button class="btn btn-warning" onclick="testOverdueNotification()">測試逾期通知</button>
+        <button class="btn btn-info" onclick="testContactBorrower()">測試聯絡借閱者</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試結果</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>當前狀態</h2>
+        <div id="current-status"></div>
+    </div>
+
+    <script>
+        // 模擬圖書館系統
+        class TestLibrary {
+            constructor() {
+                this.borrowedBooks = [];
+                this.users = [];
+                this.currentUser = null;
+                this.adminUsername = 'sindy16872000';
+                this.settings = {
+                    notifications: []
+                };
+            }
+
+            // 檢查是否為管理員
+            isAdminUser() {
+                return this.currentUser && this.currentUser.username === this.adminUsername;
+            }
+
+            // 模擬登入
+            login(username, realName, phoneNumber, role) {
+                if (!username || !realName || !phoneNumber) {
+                    return { success: false, message: '請填寫完整資訊' };
+                }
+
+                if (!/^[0-9]{10}$/.test(phoneNumber)) {
+                    return { success: false, message: '電話號碼必須是10位數字' };
+                }
+
+                this.currentUser = { username, realName, phoneNumber, role };
+
+                // 儲存使用者資訊
+                const existingUserIndex = this.users.findIndex(u => u.username === username);
+                const userInfo = {
+                    username,
+                    realName,
+                    phoneNumber,
+                    role,
+                    lastLogin: new Date().toISOString()
+                };
+
+                if (existingUserIndex >= 0) {
+                    this.users[existingUserIndex] = { ...this.users[existingUserIndex], ...userInfo };
+                } else {
+                    this.users.push(userInfo);
+                }
+
+                return { 
+                    success: true, 
+                    message: `歡迎 ${realName}！`,
+                    user: this.currentUser
+                };
+            }
+
+            // 登出
+            logout() {
+                const username = this.currentUser ? this.currentUser.username : '';
+                this.currentUser = null;
+                return { success: true, message: `${username} 已登出` };
+            }
+
+            // 建立範例借閱記錄
+            createSampleRecords() {
+                const now = new Date();
+                this.borrowedBooks = [
+                    {
+                        id: '1',
+                        bookId: 'B001',
+                        bookTitle: 'JavaScript 程式設計',
+                        userId: 'student1',
+                        borrowDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+                        dueDate: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+                        returnedAt: null
+                    },
+                    {
+                        id: '2',
+                        bookId: 'B002',
+                        bookTitle: 'Python 資料科學',
+                        userId: 'student2',
+                        borrowDate: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+                        dueDate: new Date(now.getTime() + 11 * 24 * 60 * 60 * 1000).toISOString(),
+                        returnedAt: null
+                    }
+                ];
+
+                // 確保有對應的使用者
+                if (!this.users.find(u => u.username === 'student1')) {
+                    this.users.push({
+                        username: 'student1',
+                        realName: '王小明',
+                        phoneNumber: '0912345678',
+                        role: 'student'
+                    });
+                }
+
+                if (!this.users.find(u => u.username === 'student2')) {
+                    this.users.push({
+                        username: 'student2',
+                        realName: '李小華',
+                        phoneNumber: '0987654321',
+                        role: 'student'
+                    });
+                }
+
+                return '已建立 2 筆範例借閱記錄';
+            }
+
+            // 建立逾期記錄
+            createOverdueRecords() {
+                const now = new Date();
+                this.borrowedBooks.push(
+                    {
+                        id: '3',
+                        bookId: 'B003',
+                        bookTitle: 'HTML5 網頁設計',
+                        userId: 'student1',
+                        borrowDate: new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+                        dueDate: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+                        returnedAt: null
+                    },
+                    {
+                        id: '4',
+                        bookId: 'B004',
+                        bookTitle: 'CSS3 樣式設計',
+                        userId: 'teacher1',
+                        borrowDate: new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+                        dueDate: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+                        returnedAt: null
+                    }
+                );
+
+                // 確保有對應的使用者
+                if (!this.users.find(u => u.username === 'teacher1')) {
+                    this.users.push({
+                        username: 'teacher1',
+                        realName: '張老師',
+                        phoneNumber: '0923456789',
+                        role: 'staff'
+                    });
+                }
+
+                return '已建立 2 筆逾期借閱記錄';
+            }
+
+            // 獲取借閱者清單
+            getBorrowersList(filterType = 'all') {
+                const unreturnedBooks = this.borrowedBooks.filter(b => !b.returnedAt);
+                
+                // 按借閱者分組
+                const borrowersMap = new Map();
+                
+                unreturnedBooks.forEach(record => {
+                    const userInfo = this.users.find(u => u.username === record.userId);
+                    
+                    if (!borrowersMap.has(record.userId)) {
+                        borrowersMap.set(record.userId, {
+                            username: record.userId,
+                            realName: userInfo ? userInfo.realName : record.userId,
+                            phoneNumber: userInfo ? userInfo.phoneNumber : '未提供',
+                            books: [],
+                            hasOverdue: false
+                        });
+                    }
+                    
+                    const borrower = borrowersMap.get(record.userId);
+                    const dueDate = new Date(record.dueDate);
+                    const now = new Date();
+                    const isOverdue = dueDate < now;
+                    
+                    borrower.books.push({
+                        ...record,
+                        isOverdue,
+                        daysOverdue: isOverdue ? Math.ceil((now - dueDate) / (1000 * 60 * 60 * 24)) : 0
+                    });
+                    
+                    if (isOverdue) {
+                        borrower.hasOverdue = true;
+                    }
+                });
+
+                let borrowers = Array.from(borrowersMap.values());
+
+                if (filterType === 'overdue') {
+                    borrowers = borrowers.filter(b => b.hasOverdue);
+                }
+
+                return borrowers;
+            }
+
+            // 搜尋借閱者
+            searchBorrowers(searchTerm) {
+                const borrowers = this.getBorrowersList();
+                return borrowers.filter(borrower => 
+                    borrower.realName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    borrower.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    borrower.phoneNumber.includes(searchTerm)
+                );
+            }
+
+            // 發送逾期通知
+            sendOverdueNotification(username, method, message, status) {
+                const userInfo = this.users.find(u => u.username === username);
+                if (!userInfo) {
+                    return { success: false, message: '找不到借閱者資訊' };
+                }
+
+                const notification = {
+                    borrowerId: username,
+                    borrowerName: userInfo.realName,
+                    method,
+                    message,
+                    status,
+                    createdAt: new Date().toISOString(),
+                    createdBy: this.currentUser ? this.currentUser.username : 'system'
+                };
+
+                this.settings.notifications.push(notification);
+
+                return { 
+                    success: true, 
+                    message: `逾期通知已${status === 'notified' ? '發送' : '記錄'}給 ${userInfo.realName}`,
+                    notification
+                };
+            }
+
+            // 聯絡借閱者
+            contactBorrower(phoneNumber) {
+                if (phoneNumber === '未提供') {
+                    return { success: false, message: '該借閱者未提供電話號碼' };
+                }
+
+                return { 
+                    success: true, 
+                    message: `電話號碼 ${phoneNumber} 已準備好聯絡`,
+                    phoneNumber
+                };
+            }
+        }
+
+        const testLibrary = new TestLibrary();
+
+        function addResult(title, content) {
+            const resultsDiv = document.getElementById('test-results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result';
+            resultDiv.innerHTML = `
+                <h3>${title}</h3>
+                ${content}
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function updateStatus() {
+            const statusDiv = document.getElementById('current-status');
+            const currentUser = testLibrary.currentUser;
+            const borrowers = testLibrary.getBorrowersList();
+            const overdueBorrowers = testLibrary.getBorrowersList('overdue');
+            
+            statusDiv.innerHTML = `
+                <div class="user-info">
+                    <strong>當前使用者：</strong>${currentUser ? `${currentUser.realName} (${currentUser.username}) - ${currentUser.role}` : '未登入'}
+                    ${currentUser && testLibrary.isAdminUser() ? '<span style="color: #28a745;"> [管理員]</span>' : ''}
+                </div>
+                <div class="borrower-item">
+                    <strong>借閱者統計：</strong>共 ${borrowers.length} 位借閱者，其中 ${overdueBorrowers.length} 位有逾期書籍
+                </div>
+                <div class="borrower-item">
+                    <strong>系統使用者數：</strong>${testLibrary.users.length} 位
+                </div>
+                <div class="borrower-item">
+                    <strong>通知記錄數：</strong>${testLibrary.settings.notifications.length} 筆
+                </div>
+            `;
+        }
+
+        function testLogin() {
+            const username = document.getElementById('test-username').value.trim();
+            const realName = document.getElementById('test-realname').value.trim();
+            const phoneNumber = document.getElementById('test-phone').value.trim();
+            const role = document.getElementById('test-role').value;
+
+            const result = testLibrary.login(username, realName, phoneNumber, role);
+            
+            addResult('模擬登入', `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>使用者資訊：</strong><br>
+                        • 帳號：${result.user.username}<br>
+                        • 姓名：${result.user.realName}<br>
+                        • 電話：${result.user.phoneNumber}<br>
+                        • 角色：${result.user.role}
+                    ` : ''}
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function testAdminLogin() {
+            const result = testLibrary.login('sindy16872000', '系統管理員', '0912345678', 'staff');
+            
+            addResult('管理員登入', `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>管理員權限：</strong>已啟用<br>
+                        • 可以查看借閱者清單<br>
+                        • 可以發送逾期通知<br>
+                        • 可以聯絡借閱者
+                    ` : ''}
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function testLogout() {
+            const result = testLibrary.logout();
+            
+            addResult('登出', `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function createSampleBorrowedRecords() {
+            const result = testLibrary.createSampleRecords();
+            
+            addResult('建立範例借閱記錄', result);
+            updateStatus();
+        }
+
+        function createOverdueRecords() {
+            const result = testLibrary.createOverdueRecords();
+            
+            addResult('建立逾期記錄', result);
+            updateStatus();
+        }
+
+        function showBorrowedRecords() {
+            const borrowers = testLibrary.getBorrowersList();
+            
+            const borrowersHtml = borrowers.map(borrower => `
+                <div class="borrower-item ${borrower.hasOverdue ? 'overdue' : ''}">
+                    <strong>${borrower.realName}</strong> (${borrower.username})<br>
+                    電話：${borrower.phoneNumber}<br>
+                    借閱 ${borrower.books.length} 本書<br>
+                    ${borrower.hasOverdue ? '<span style="color: #f56565;">有逾期書籍</span>' : '<span style="color: #28a745;">正常</span>'}
+                    <div style="margin-top: 10px;">
+                        ${borrower.books.map(book => `
+                            <div style="margin: 5px 0; padding: 5px; background: #f8f9fa; border-radius: 4px;">
+                                ${book.isOverdue ? 
+                                    `<span style="color: #f56565;">● ${book.bookTitle} (逾期 ${book.daysOverdue} 天)</span>` : 
+                                    `<span style="color: #28a745;">● ${book.bookTitle} (應還 ${new Date(book.dueDate).toLocaleDateString()})</span>`
+                                }
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            addResult('借閱者清單', borrowersHtml || '<p>沒有借閱記錄</p>');
+        }
+
+        function testBorrowersList() {
+            if (!testLibrary.currentUser) {
+                addResult('借閱者清單', '<p style="color: #f56565;">請先登入</p>');
+                return;
+            }
+
+            if (!testLibrary.isAdminUser()) {
+                addResult('借閱者清單', '<p style="color: #f56565;">只有管理員可以查看借閱者清單</p>');
+                return;
+            }
+
+            showBorrowedRecords();
+        }
+
+        function testOverdueBorrowers() {
+            if (!testLibrary.isAdminUser()) {
+                addResult('逾期借閱者', '<p style="color: #f56565;">只有管理員可以查看逾期借閱者</p>');
+                return;
+            }
+
+            const overdueBorrowers = testLibrary.getBorrowersList('overdue');
+            
+            const overdueHtml = overdueBorrowers.map(borrower => `
+                <div class="borrower-item overdue">
+                    <strong>${borrower.realName}</strong> (${borrower.username})<br>
+                    電話：${borrower.phoneNumber}<br>
+                    逾期書籍：${borrower.books.length} 本<br>
+                    <div style="margin-top: 10px;">
+                        ${borrower.books.map(book => `
+                            <div style="margin: 5px 0; padding: 5px; background: #fff5f5; border-radius: 4px;">
+                                <span style="color: #f56565;">● ${book.bookTitle} (逾期 ${book.daysOverdue} 天)</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            addResult('逾期借閱者', overdueHtml || '<p>沒有逾期借閱者</p>');
+        }
+
+        function testSearchBorrowers() {
+            if (!testLibrary.isAdminUser()) {
+                addResult('搜尋借閱者', '<p style="color: #f56565;">只有管理員可以搜尋借閱者</p>');
+                return;
+            }
+
+            const searchTerm = prompt('請輸入搜尋關鍵字（姓名、帳號或電話）：');
+            if (!searchTerm) return;
+
+            const results = testLibrary.searchBorrowers(searchTerm);
+            
+            const resultsHtml = results.map(borrower => `
+                <div class="borrower-item">
+                    <strong>${borrower.realName}</strong> (${borrower.username})<br>
+                    電話：${borrower.phoneNumber}<br>
+                    借閱 ${borrower.books.length} 本書
+                </div>
+            `).join('');
+
+            addResult(`搜尋結果："${searchTerm}"`, resultsHtml || '<p>找不到符合的借閱者</p>');
+        }
+
+        function testOverdueNotification() {
+            if (!testLibrary.isAdminUser()) {
+                addResult('逾期通知', '<p style="color: #f56565;">只有管理員可以發送逾期通知</p>');
+                return;
+            }
+
+            const overdueBorrowers = testLibrary.getBorrowersList('overdue');
+            if (overdueBorrowers.length === 0) {
+                addResult('逾期通知', '<p>沒有逾期借閱者需要通知</p>');
+                return;
+            }
+
+            const borrower = overdueBorrowers[0]; // 選擇第一個逾期借閱者
+            
+            const result = testLibrary.sendOverdueNotification(
+                borrower.username,
+                'phone',
+                `親愛的 ${borrower.realName}，您借閱的書籍已逾期，請盡快歸還。`,
+                'notified'
+            );
+
+            addResult('逾期通知', `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>通知詳情：</strong><br>
+                        • 借閱者：${result.notification.borrowerName}<br>
+                        • 方式：${result.notification.method}<br>
+                        • 狀態：${result.notification.status}<br>
+                        • 時間：${new Date(result.notification.createdAt).toLocaleString()}
+                    ` : ''}
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function testContactBorrower() {
+            if (!testLibrary.isAdminUser()) {
+                addResult('聯絡借閱者', '<p style="color: #f56565;">只有管理員可以聯絡借閱者</p>');
+                return;
+            }
+
+            const borrowers = testLibrary.getBorrowersList();
+            if (borrowers.length === 0) {
+                addResult('聯絡借閱者', '<p>沒有借閱者可以聯絡</p>');
+                return;
+            }
+
+            const borrower = borrowers[0]; // 選擇第一個借閱者
+            const result = testLibrary.contactBorrower(borrower.phoneNumber);
+
+            addResult('聯絡借閱者', `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>聯絡資訊：</strong><br>
+                        • 借閱者：${borrower.realName}<br>
+                        • 電話：${result.phoneNumber}
+                    ` : ''}
+                </div>
+            `);
+        }
+
+        // 初始化
+        window.onload = function() {
+            addResult('系統初始化', '測試系統已準備就緒');
+            updateStatus();
+        };
+    </script>
+</body>
+</html>

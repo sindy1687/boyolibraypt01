@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>刪除身分功能測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+        .user-info { background: #f0f8ff; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .identity-item { background: #fff3cd; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #ffc107; }
+        .identity-item.deleted { background: #fee2e2; border-left-color: #dc3545; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-outline { background: transparent; border: 1px solid #007bff; color: #007bff; }
+        .result { margin: 10px 0; padding: 10px; background: #e7f3ff; border-radius: 4px; }
+        .form-group { margin: 10px 0; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select, .form-group textarea { 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            box-sizing: border-box;
+        }
+        .form-group textarea { resize: vertical; }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-block;
+            margin: 2px;
+        }
+        .status-badge.student { background: #e3f2fd; color: #1565c0; }
+        .status-badge.staff { background: #f3e5f5; color: #7b1fa2; }
+        .status-badge.admin { background: #ffebee; color: #c62828; }
+        .warning-box {
+            background: #fef3c7;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            border-left: 4px solid #f59e0b;
+        }
+        .danger-box {
+            background: #fee2e2;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            border-left: 4px solid #dc3545;
+        }
+        .log-entry {
+            background: #f8f9fa;
+            padding: 8px;
+            margin: 5px 0;
+            border-left: 3px solid #007bff;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        .log-entry.success { border-left-color: #28a745; }
+        .log-entry.error { border-left-color: #dc3545; }
+        .log-entry.warning { border-left-color: #ffc107; }
+    </style>
+</head>
+<body>
+    <h1>刪除身分功能測試</h1>
+    
+    <div class="test-section">
+        <h2>功能說明</h2>
+        <div class="identity-item">
+            <h3>刪除身分功能</h3>
+            <ul>
+                <li><strong>管理員專用：</strong>只有管理員可以刪除使用者身分</li>
+                <li><strong>安全檢查：</strong>不能刪除管理員帳號</li>
+                <li><strong>借閱檢查：</strong>使用者必須歸還所有書籍才能刪除</li>
+                <li><strong>完整刪除：</strong>刪除使用者記錄和相關申請記錄</li>
+                <li><strong>審計日誌：</strong>記錄所有刪除操作和原因</li>
+                <li><strong>強制登出：</strong>被刪除的使用者會立即登出</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>創建測試使用者</h2>
+        <div class="form-group">
+            <label>使用者名稱：</label>
+            <input type="text" id="test-username" placeholder="輸入使用者名稱">
+        </div>
+        <div class="form-group">
+            <label>真實姓名：</label>
+            <input type="text" id="test-realname" placeholder="輸入真實姓名">
+        </div>
+        <div class="form-group">
+            <label>電話號碼：</label>
+            <input type="tel" id="test-phone" placeholder="0912345678">
+        </div>
+        <div class="form-group">
+            <label>角色：</label>
+            <select id="test-role">
+                <option value="student">學生</option>
+                <option value="staff">老師/館員</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" onclick="createTestUser()">創建測試使用者</button>
+        <button class="btn btn-info" onclick="createMultipleUsers()">創建多個測試使用者</button>
+        <button class="btn btn-warning" onclick="clearTestUsers()">清除測試使用者</button>
+    </div>
+
+    <div class="test-section">
+        <h2>模擬借閱記錄</h2>
+        <div class="form-group">
+            <label>選擇使用者：</label>
+            <select id="borrow-user-select">
+                <option value="">請先創建使用者</option>
+            </select>
+        </div>
+        <button class="btn btn-warning" onclick="addBorrowRecord()">添加借閱記錄</button>
+        <button class="btn btn-success" onclick="returnAllBooks()">歸還所有書籍</button>
+        <button class="btn btn-info" onclick="showBorrowStatus()">顯示借閱狀態</button>
+    </div>
+
+    <div class="test-section">
+        <h2>刪除身分測試</h2>
+        <button class="btn btn-danger" onclick="testAdminLogin()">管理員登入</button>
+        <button class="btn btn-primary" onclick="showDeleteModal()">顯示刪除身分介面</button>
+        <button class="btn btn-warning" onclick="testDeleteUser()">測試刪除使用者</button>
+        <button class="btn btn-info" onclick="testDeleteWithBooks()">測試刪除有書的使用者</button>
+        <button class="btn btn-danger" onclick="testDeleteAdmin()">測試刪除管理員</button>
+    </div>
+
+    <div class="test-section">
+        <h2>搜尋和篩選測試</h2>
+        <div class="form-group">
+            <label>搜尋關鍵字：</label>
+            <input type="text" id="search-keyword" placeholder="輸入姓名或帳號">
+        </div>
+        <button class="btn btn-info" onclick="testSearch()">測試搜尋功能</button>
+        <button class="btn btn-warning" onclick="testRefresh()">測試重新整理</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試結果</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>當前狀態</h2>
+        <div id="current-status"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>刪除日誌</h2>
+        <div id="delete-logs"></div>
+        <button class="btn btn-outline" onclick="clearLogs()">清除日誌</button>
+    </div>
+
+    <script>
+        // 模擬圖書館系統
+        class TestLibrary {
+            constructor() {
+                this.users = [];
+                this.borrowedBooks = [];
+                this.currentUser = null;
+                this.adminUsername = 'sindy16872000';
+                this.settings = {
+                    staffApplications: [],
+                    deleteLogs: []
+                };
+            }
+
+            // 檢查是否為管理員
+            isAdminUser() {
+                return this.currentUser && this.currentUser.username === this.adminUsername;
+            }
+
+            // 添加刪除日誌
+            addDeleteLog(message, type = 'info') {
+                const log = {
+                    timestamp: new Date().toLocaleString(),
+                    message,
+                    type
+                };
+                this.settings.deleteLogs.unshift(log);
+                
+                // 保持最多 50 條日誌
+                if (this.settings.deleteLogs.length > 50) {
+                    this.settings.deleteLogs = this.settings.deleteLogs.slice(0, 50);
+                }
+                
+                this.updateDeleteLogs();
+            }
+
+            // 更新刪除日誌顯示
+            updateDeleteLogs() {
+                const logsDiv = document.getElementById('delete-logs');
+                const logsHtml = this.settings.deleteLogs.map(log => `
+                    <div class="log-entry ${log.type}">
+                        [${log.timestamp}] ${log.message}
+                    </div>
+                `).join('');
+                
+                logsDiv.innerHTML = logsHtml || '<p>暫無刪除日誌</p>';
+            }
+
+            // 創建測試使用者
+            createTestUser(username, realName, phoneNumber, role) {
+                const existingUser = this.users.find(u => u.username === username);
+                if (existingUser) {
+                    return { success: false, message: '使用者名稱已存在' };
+                }
+
+                const user = {
+                    username,
+                    realName,
+                    phoneNumber,
+                    role,
+                    lastLogin: new Date().toISOString()
+                };
+
+                this.users.push(user);
+                this.addDeleteLog(`創建測試使用者：${realName} (${username})`, 'success');
+                
+                return { success: true, message: '使用者創建成功', user };
+            }
+
+            // 添加借閱記錄
+            addBorrowRecord(username) {
+                const user = this.users.find(u => u.username === username);
+                if (!user) {
+                    return { success: false, message: '找不到使用者' };
+                }
+
+                const borrowRecord = {
+                    id: Date.now().toString(),
+                    username,
+                    bookTitle: `測試書籍 ${Math.floor(Math.random() * 100)}`,
+                    borrowDate: new Date().toISOString(),
+                    dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+                    returnDate: null
+                };
+
+                this.borrowedBooks.push(borrowRecord);
+                this.addDeleteLog(`添加借閱記錄：${user.realName} 借閱 ${borrowRecord.bookTitle}`, 'info');
+                
+                return { success: true, message: '借閱記錄添加成功', borrowRecord };
+            }
+
+            // 歸還所有書籍
+            returnAllBooks(username) {
+                const userBorrows = this.borrowedBooks.filter(book => book.username === username && !book.returnDate);
+                
+                userBorrows.forEach(borrow => {
+                    borrow.returnDate = new Date().toISOString();
+                });
+
+                this.addDeleteLog(`歸還所有書籍：${username} 歸還了 ${userBorrows.length} 本書`, 'success');
+                
+                return { success: true, message: `已歸還 ${userBorrows.length} 本書` };
+            }
+
+            // 刪除身分
+            deleteIdentity(username, reason) {
+                try {
+                    // 檢查使用者是否存在
+                    const userIndex = this.users.findIndex(u => u.username === username);
+                    if (userIndex === -1) {
+                        return { success: false, message: '找不到使用者' };
+                    }
+
+                    const user = this.users[userIndex];
+
+                    // 檢查是否為管理員
+                    if (username === this.adminUsername) {
+                        return { success: false, message: '不能刪除管理員帳號' };
+                    }
+
+                    // 檢查是否有未歸還的書籍
+                    const activeBorrows = this.borrowedBooks.filter(book => 
+                        book.username === username && !book.returnDate
+                    );
+
+                    if (activeBorrows.length > 0) {
+                        return { 
+                            success: false, 
+                            message: `使用者還有 ${activeBorrows.length} 本書籍未歸還，無法刪除身分` 
+                        };
+                    }
+
+                    // 刪除身分申請記錄
+                    const applicationIndex = this.settings.staffApplications.findIndex(
+                        app => app.username === username
+                    );
+                    if (applicationIndex !== -1) {
+                        this.settings.staffApplications.splice(applicationIndex, 1);
+                    }
+
+                    // 刪除使用者記錄
+                    this.users.splice(userIndex, 1);
+
+                    // 如果是當前登入的使用者，強制登出
+                    if (this.currentUser && this.currentUser.username === username) {
+                        this.currentUser = null;
+                    }
+
+                    // 記錄刪除日誌
+                    const deleteLog = {
+                        username,
+                        realName: user.realName,
+                        deletedAt: new Date().toISOString(),
+                        deletedBy: this.currentUser ? this.currentUser.username : 'system',
+                        reason,
+                        borrowCount: this.borrowedBooks.filter(book => book.username === username).length
+                    };
+
+                    this.settings.deleteLogs.push(deleteLog);
+                    this.addDeleteLog(`刪除身分：${user.realName} (${username}) - ${reason}`, 'error');
+
+                    return { 
+                        success: true, 
+                        message: `已成功刪除 ${user.realName} 的身分` 
+                    };
+
+                } catch (error) {
+                    console.error('刪除身分時發生錯誤:', error);
+                    return { success: false, message: '刪除身分時發生錯誤' };
+                }
+            }
+
+            // 搜尋使用者
+            searchUsers(searchTerm) {
+                if (!searchTerm) {
+                    return this.users;
+                }
+
+                return this.users.filter(user => 
+                    user.realName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    user.phoneNumber.includes(searchTerm)
+                );
+            }
+
+            // 獲取角色顯示名稱
+            getRoleDisplayName(role) {
+                const roleNames = {
+                    'student': '學生',
+                    'staff': '老師/館員',
+                    'admin': '管理員'
+                };
+                return roleNames[role] || role;
+            }
+
+            // 清除測試使用者
+            clearTestUsers() {
+                this.users = [];
+                this.borrowedBooks = [];
+                this.addDeleteLog('清除所有測試使用者', 'warning');
+            }
+        }
+
+        const testLibrary = new TestLibrary();
+
+        function addResult(title, content) {
+            const resultsDiv = document.getElementById('test-results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result';
+            resultDiv.innerHTML = `
+                <h3>${title}</h3>
+                ${content}
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function updateStatus() {
+            const statusDiv = document.getElementById('current-status');
+            const currentUser = testLibrary.currentUser;
+            const users = testLibrary.users;
+            const activeBorrows = testLibrary.borrowedBooks.filter(book => !book.returnDate);
+            
+            statusDiv.innerHTML = `
+                <div class="user-info">
+                    <strong>當前使用者：</strong>${currentUser ? `${currentUser.realName} (${currentUser.username})` : '未登入'}
+                    ${currentUser && testLibrary.isAdminUser() ? '<span style="color: #28a745;"> [管理員]</span>' : ''}
+                </div>
+                <div class="user-info">
+                    <strong>使用者統計：</strong>共 ${users.length} 位使用者
+                </div>
+                <div class="user-info">
+                    <strong>借閱統計：</strong>${activeBorrows.length} 本未歸還
+                </div>
+            `;
+            
+            updateUserSelect();
+        }
+
+        function updateUserSelect() {
+            const select = document.getElementById('borrow-user-select');
+            const users = testLibrary.users;
+            
+            select.innerHTML = users.length > 0 ? 
+                users.map(user => `<option value="${user.username}">${user.realName} (${user.username})</option>`).join('') :
+                '<option value="">請先創建使用者</option>';
+        }
+
+        function createTestUser() {
+            const username = document.getElementById('test-username').value.trim();
+            const realName = document.getElementById('test-realname').value.trim();
+            const phoneNumber = document.getElementById('test-phone').value.trim();
+            const role = document.getElementById('test-role').value;
+
+            if (!username || !realName || !phoneNumber) {
+                addResult('創建測試使用者', '<p style="color: #f56565;">請填寫完整的使用者資訊</p>');
+                return;
+            }
+
+            const result = testLibrary.createTestUser(username, realName, phoneNumber, role);
+            
+            const content = `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>使用者資訊：</strong><br>
+                        • 姓名：${result.user.realName}<br>
+                        • 帳號：${result.user.username}<br>
+                        • 電話：${result.user.phoneNumber}<br>
+                        • 角色：<span class="status-badge ${result.user.role}">${testLibrary.getRoleDisplayName(result.user.role)}</span>
+                    ` : ''}
+                </div>
+            `;
+            
+            addResult('創建測試使用者', content);
+            updateStatus();
+        }
+
+        function createMultipleUsers() {
+            const testUsers = [
+                { username: 'student1', realName: '王小明', phoneNumber: '0912345678', role: 'student' },
+                { username: 'teacher1', realName: '張老師', phoneNumber: '0987654321', role: 'staff' },
+                { username: 'student2', realName: '李小華', phoneNumber: '0923456789', role: 'student' },
+                { username: 'teacher2', realName: '陳老師', phoneNumber: '0934567890', role: 'staff' }
+            ];
+
+            let successCount = 0;
+            let failCount = 0;
+
+            testUsers.forEach(user => {
+                const result = testLibrary.createTestUser(user.username, user.realName, user.phoneNumber, user.role);
+                if (result.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            });
+
+            addResult('創建多個測試使用者', `
+                <div class="user-info">
+                    <strong>創建結果：</strong><br>
+                    • 成功：${successCount} 位使用者<br>
+                    • 失敗：${failCount} 位使用者<br>
+                    • 總計：${testUsers.length} 位使用者
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function clearTestUsers() {
+            testLibrary.clearTestUsers();
+            addResult('清除測試使用者', '所有測試使用者已清除');
+            updateStatus();
+        }
+
+        function addBorrowRecord() {
+            const username = document.getElementById('borrow-user-select').value;
+            if (!username) {
+                addResult('添加借閱記錄', '<p style="color: #f56565;">請選擇使用者</p>');
+                return;
+            }
+
+            const result = testLibrary.addBorrowRecord(username);
+            
+            const content = `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>借閱詳情：</strong><br>
+                        • 書籍：${result.borrowRecord.bookTitle}<br>
+                        • 借閱日期：${new Date(result.borrowRecord.borrowDate).toLocaleString()}<br>
+                        • 應還日期：${new Date(result.borrowRecord.dueDate).toLocaleString()}
+                    ` : ''}
+                </div>
+            `;
+            
+            addResult('添加借閱記錄', content);
+            updateStatus();
+        }
+
+        function returnAllBooks() {
+            const username = document.getElementById('borrow-user-select').value;
+            if (!username) {
+                addResult('歸還書籍', '<p style="color: #f56565;">請選擇使用者</p>');
+                return;
+            }
+
+            const result = testLibrary.returnAllBooks(username);
+            addResult('歸還書籍', `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}
+                </div>
+            `);
+            updateStatus();
+        }
+
+        function showBorrowStatus() {
+            const users = testLibrary.users;
+            const statusHtml = users.map(user => {
+                const userBorrows = testLibrary.borrowedBooks.filter(book => book.username === username);
+                const activeBorrows = userBorrows.filter(book => !book.returnDate);
+                
+                return `
+                    <div class="user-info">
+                        <strong>${user.realName} (${user.username})</strong><br>
+                        • 總借閱：${userBorrows.length} 本<br>
+                        • 未歸還：${activeBorrows.length} 本<br>
+                        • 狀態：${activeBorrows.length > 0 ? '<span style="color: #f56565;">有未歸還書籍</span>' : '<span style="color: #28a745;">已歸還所有書籍</span>'}
+                    </div>
+                `;
+            }).join('');
+
+            addResult('借閱狀態', statusHtml || '<p>沒有使用者</p>');
+        }
+
+        function testAdminLogin() {
+            testLibrary.currentUser = {
+                username: testLibrary.adminUsername,
+                realName: '系統管理員',
+                role: 'admin'
+            };
+            
+            addResult('管理員登入', `
+                <div class="user-info">
+                    <strong>登入成功：</strong>系統管理員<br>
+                    <strong>權限：</strong>可以刪除使用者身分
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function showDeleteModal() {
+            if (!testLibrary.isAdminUser()) {
+                addResult('顯示刪除介面', '<p style="color: #f56565;">請先以管理員身份登入</p>');
+                return;
+            }
+
+            const users = testLibrary.users;
+            const userListHtml = users.map(user => {
+                const borrowCount = testLibrary.borrowedBooks.filter(book => book.username === user.username && !book.returnDate).length;
+                
+                return `
+                    <div class="identity-item">
+                        <div class="user-info">
+                            <strong>${user.realName}</strong> (${user.username})<br>
+                            角色：<span class="status-badge ${user.role}">${testLibrary.getRoleDisplayName(user.role)}</span><br>
+                            電話：${user.phoneNumber}<br>
+                            未歸還書籍：${borrowCount} 本<br>
+                            <button class="btn btn-danger" onclick="simulateDelete('${user.username}')" 
+                                    ${user.username === testLibrary.adminUsername ? 'disabled' : ''}>
+                                刪除
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            addResult('刪除身分介面', userListHtml || '<p>沒有使用者可刪除</p>');
+        }
+
+        function simulateDelete(username) {
+            const user = testLibrary.users.find(u => u.username === username);
+            if (!user) {
+                addResult('模擬刪除', '<p>找不到使用者</p>');
+                return;
+            }
+
+            const reason = prompt(`請輸入刪除 ${user.realName} 的原因：`);
+            if (!reason) return;
+
+            const result = testLibrary.deleteIdentity(username, reason);
+            
+            const content = `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}
+                </div>
+            `;
+            
+            addResult('刪除身分', content);
+            updateStatus();
+        }
+
+        function testDeleteUser() {
+            if (!testLibrary.isAdminUser()) {
+                addResult('測試刪除使用者', '<p style="color: #f56565;">請先以管理員身份登入</p>');
+                return;
+            }
+
+            const normalUsers = testLibrary.users.filter(u => u.username !== testLibrary.adminUsername);
+            if (normalUsers.length === 0) {
+                addResult('測試刪除使用者', '<p>沒有可刪除的使用者</p>');
+                return;
+            }
+
+            const user = normalUsers[0];
+            const result = testLibrary.deleteIdentity(user.username, '測試刪除');
+            
+            addResult('測試刪除使用者', `
+                <div class="user-info">
+                    <strong>測試結果：</strong><br>
+                    • 使用者：${user.realName}<br>
+                    • 結果：${result.success ? '成功' : '失敗'}<br>
+                    • 訊息：${result.message}
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function testDeleteWithBooks() {
+            if (!testLibrary.isAdminUser()) {
+                addResult('測試刪除有書的使用者', '<p style="color: #f56565;">請先以管理員身份登入</p>');
+                return;
+            }
+
+            const normalUsers = testLibrary.users.filter(u => u.username !== testLibrary.adminUsername);
+            if (normalUsers.length === 0) {
+                addResult('測試刪除有書的使用者', '<p>沒有可測試的使用者</p>');
+                return;
+            }
+
+            const user = normalUsers[0];
+            
+            // 先添加借閱記錄
+            testLibrary.addBorrowRecord(user.username);
+            
+            // 嘗試刪除
+            const result = testLibrary.deleteIdentity(user.username, '測試刪除有書的使用者');
+            
+            addResult('測試刪除有書的使用者', `
+                <div class="user-info">
+                    <strong>測試結果：</strong><br>
+                    • 使用者：${user.realName}<br>
+                    • 結果：${result.success ? '成功' : '失敗'}<br>
+                    • 訊息：${result.message}<br>
+                    • 預期：應該失敗，因為有未歸還的書籍
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function testDeleteAdmin() {
+            const result = testLibrary.deleteIdentity(testLibrary.adminUsername, '測試刪除管理員');
+            
+            addResult('測試刪除管理員', `
+                <div class="user-info">
+                    <strong>測試結果：</strong><br>
+                    • 結果：${result.success ? '成功' : '失敗'}<br>
+                    • 訊息：${result.message}<br>
+                    • 預期：應該失敗，不能刪除管理員
+                </div>
+            `);
+        }
+
+        function testSearch() {
+            const searchTerm = document.getElementById('search-keyword').value.trim();
+            if (!searchTerm) {
+                addResult('測試搜尋', '<p>請輸入搜尋關鍵字</p>');
+                return;
+            }
+
+            const results = testLibrary.searchUsers(searchTerm);
+            
+            const resultsHtml = results.map(user => `
+                <div class="user-info">
+                    <strong>${user.realName}</strong> (${user.username})<br>
+                    角色：<span class="status-badge ${user.role}">${testLibrary.getRoleDisplayName(user.role)}</span><br>
+                    電話：${user.phoneNumber}
+                </div>
+            `).join('');
+
+            addResult(`搜尋結果："${searchTerm}"`, resultsHtml || '<p>找不到符合的使用者</p>');
+        }
+
+        function testRefresh() {
+            addResult('測試重新整理', '重新整理功能會更新使用者列表和統計資訊');
+            updateStatus();
+        }
+
+        function clearLogs() {
+            testLibrary.settings.deleteLogs = [];
+            testLibrary.updateDeleteLogs();
+        }
+
+        // 初始化
+        window.onload = function() {
+            addResult('系統初始化', '刪除身分功能測試系統已準備就緒');
+            updateStatus();
+            testLibrary.updateDeleteLogs();
+        };
+    </script>
+</body>
+</html>

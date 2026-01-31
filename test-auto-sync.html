@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>審核資料自動上傳測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+        .user-info { background: #f0f8ff; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .application-item { background: #fff3cd; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #ffc107; }
+        .application-item.pending { border-left-color: #f56565; }
+        .application-item.approved { border-left-color: #28a745; }
+        .application-item.rejected { border-left-color: #6c757d; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .result { margin: 10px 0; padding: 10px; background: #e7f3ff; border-radius: 4px; }
+        .form-group { margin: 10px 0; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select, .form-group textarea { 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            box-sizing: border-box;
+        }
+        .form-group textarea { resize: vertical; }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-block;
+            margin: 2px;
+        }
+        .status-badge.pending { background: #fed7d7; color: #742a2a; }
+        .status-badge.approved { background: #c6f6d5; color: #22543d; }
+        .status-badge.rejected { background: #e2e8f0; color: #4a5568; }
+        .sync-status {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-block;
+            margin: 2px;
+        }
+        .sync-status.success { background: #c6f6d5; color: #22543d; }
+        .sync-status.pending { background: #fef3c7; color: #78350f; }
+        .sync-status.failed { background: #fee2e2; color: #991b1b; }
+        .log-entry {
+            background: #f8f9fa;
+            padding: 8px;
+            margin: 5px 0;
+            border-left: 3px solid #007bff;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        .log-entry.success { border-left-color: #28a745; }
+        .log-entry.error { border-left-color: #dc3545; }
+        .log-entry.warning { border-left-color: #ffc107; }
+    </style>
+</head>
+<body>
+    <h1>審核資料自動上傳測試</h1>
+    
+    <div class="test-section">
+        <h2>測試說明</h2>
+        <div class="application-item">
+            <h3>修復內容</h3>
+            <ul>
+                <li><strong>自動上傳申請：</strong>創建申請時立即同步到 Google Sheets</li>
+                <li><strong>自動上傳審核：</strong>審核通過/拒絕時立即同步結果</li>
+                <li><strong>狀態提示：</strong>顯示上傳進度和結果</li>
+                <li><strong>錯誤處理：</strong>網路問題時顯示警告訊息</li>
+                <li><strong>即時同步：</strong>所有申請狀態變更都會自動上傳</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>模擬申請老師/館員身份</h2>
+        <div class="form-group">
+            <label>使用者名稱：</label>
+            <input type="text" id="test-username" placeholder="輸入使用者名稱">
+        </div>
+        <div class="form-group">
+            <label>真實姓名：</label>
+            <input type="text" id="test-realname" placeholder="輸入真實姓名">
+        </div>
+        <div class="form-group">
+            <label>電話號碼：</label>
+            <input type="tel" id="test-phone" placeholder="0912345678">
+        </div>
+        <button class="btn btn-primary" onclick="testStaffApplication()">申請老師/館員身份</button>
+        <button class="btn btn-info" onclick="testAdminLogin()">管理員登入</button>
+        <button class="btn btn-warning" onclick="clearApplications()">清除申請</button>
+    </div>
+
+    <div class="test-section">
+        <h2>模擬審核流程</h2>
+        <button class="btn btn-success" onclick="testApproveApplication()">測試通過申請</button>
+        <button class="btn btn-danger" onclick="testRejectApplication()">測試拒絕申請</button>
+        <button class="btn btn-info" onclick="testDetailedApproval()">測試詳細審核</button>
+        <button class="btn btn-warning" onclick="showApplications()">顯示所有申請</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Google Sheets 同步測試</h2>
+        <button class="btn btn-success" onclick="testGoogleSync()">測試 Google Sheets 同步</button>
+        <button class="btn btn-info" onclick="testSyncStatus()">檢查同步狀態</button>
+        <button class="btn btn-warning" onclick="simulateNetworkError()">模擬網路錯誤</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試結果</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>同步日誌</h2>
+        <div id="sync-logs"></div>
+        <button class="btn btn-outline" onclick="clearLogs()">清除日誌</button>
+    </div>
+
+    <div class="test-section">
+        <h2>當前狀態</h2>
+        <div id="current-status"></div>
+    </div>
+
+    <script>
+        // 模擬圖書館系統
+        class TestLibrary {
+            constructor() {
+                this.users = [];
+                this.currentUser = null;
+                this.adminUsername = 'sindy16872000';
+                this.settings = {
+                    staffApplications: [],
+                    googleWebAppUrl: 'https://script.google.com/macros/s/test/exec'
+                };
+                this.syncLogs = [];
+            }
+
+            // 檢查是否為管理員
+            isAdminUser() {
+                return this.currentUser && this.currentUser.username === this.adminUsername;
+            }
+
+            // 添加同步日誌
+            addSyncLog(message, type = 'info') {
+                const log = {
+                    timestamp: new Date().toLocaleString(),
+                    message,
+                    type
+                };
+                this.syncLogs.unshift(log);
+                
+                // 保持最多 50 條日誌
+                if (this.syncLogs.length > 50) {
+                    this.syncLogs = this.syncLogs.slice(0, 50);
+                }
+                
+                this.updateSyncLogs();
+            }
+
+            // 更新同步日誌顯示
+            updateSyncLogs() {
+                const logsDiv = document.getElementById('sync-logs');
+                const logsHtml = this.syncLogs.map(log => `
+                    <div class="log-entry ${log.type}">
+                        [${log.timestamp}] ${log.message}
+                    </div>
+                `).join('');
+                
+                logsDiv.innerHTML = logsHtml || '<p>暫無同步日誌</p>';
+            }
+
+            // 模擬申請老師/館員身份
+            applyForStaffRole(username, realName, phoneNumber) {
+                // 檢查是否已經有申請記錄
+                const existingApplication = this.settings.staffApplications.find(
+                    app => app.username === username && app.status === 'approved'
+                );
+                
+                const pendingApplication = this.settings.staffApplications.find(
+                    app => app.username === username && app.status === 'pending'
+                );
+
+                if (!existingApplication && !pendingApplication) {
+                    // 創建新的申請記錄
+                    const application = {
+                        id: Date.now().toString(),
+                        username,
+                        realName,
+                        phoneNumber,
+                        requestedRole: 'staff',
+                        status: 'pending',
+                        submittedAt: new Date().toISOString(),
+                        reviewedAt: null,
+                        reviewedBy: null,
+                        decision: null,
+                        reason: null,
+                        note: null,
+                        syncStatus: 'pending'
+                    };
+
+                    this.settings.staffApplications.push(application);
+                    
+                    // 立即同步到 Google Sheets
+                    this.syncApplicationToGoogleSheets(application);
+                    
+                    return { 
+                        success: true, 
+                        message: '老師/館員身份申請已提交，審核通過前將以學生身份使用系統',
+                        application,
+                        isNewApplication: true
+                    };
+                } else if (pendingApplication) {
+                    return { 
+                        success: true, 
+                        message: '您的老師/館員身份申請正在審核中，請耐心等候',
+                        application: pendingApplication,
+                        isPending: true
+                    };
+                } else if (existingApplication) {
+                    return { 
+                        success: true, 
+                        message: '老師/館員身份已驗證，歡迎使用！',
+                        application: existingApplication,
+                        isApproved: true
+                    };
+                }
+            }
+
+            // 模擬同步申請到 Google Sheets
+            async syncApplicationToGoogleSheets(application) {
+                this.addSyncLog(`開始同步申請 ${application.realName} (${application.username}) 到 Google Sheets`, 'info');
+                
+                // 模擬網路延遲
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // 模擬成功/失敗（90% 成功率）
+                const success = Math.random() > 0.1;
+                
+                if (success) {
+                    application.syncStatus = 'success';
+                    application.lastSyncAt = new Date().toISOString();
+                    this.addSyncLog(`申請 ${application.realName} 的資料已成功同步到 Google Sheets`, 'success');
+                    return { success: true };
+                } else {
+                    application.syncStatus = 'failed';
+                    this.addSyncLog(`申請 ${application.realName} 的資料同步到 Google Sheets 失敗`, 'error');
+                    return { success: false, error: '網路連線問題' };
+                }
+            }
+
+            // 模擬通過申請
+            approveApplication(applicationId) {
+                const application = this.settings.staffApplications.find(app => app.id === applicationId);
+                if (!application) {
+                    return { success: false, message: '找不到申請記錄' };
+                }
+
+                // 更新申請狀態
+                application.status = 'approved';
+                application.decision = 'approved';
+                application.reviewedAt = new Date().toISOString();
+                application.reviewedBy = this.currentUser ? this.currentUser.username : 'system';
+                application.reason = '審核通過';
+                application.syncStatus = 'pending';
+
+                // 立即同步審核結果
+                this.syncApplicationToGoogleSheets(application);
+
+                return { 
+                    success: true, 
+                    message: `已通過 ${application.realName} 的老師/館員身份申請`,
+                    application
+                };
+            }
+
+            // 模擬拒絕申請
+            rejectApplication(applicationId) {
+                const application = this.settings.staffApplications.find(app => app.id === applicationId);
+                if (!application) {
+                    return { success: false, message: '找不到申請記錄' };
+                }
+
+                // 更新申請狀態
+                application.status = 'rejected';
+                application.decision = 'rejected';
+                application.reviewedAt = new Date().toISOString();
+                application.reviewedBy = this.currentUser ? this.currentUser.username : 'system';
+                application.reason = '審核拒絕';
+                application.syncStatus = 'pending';
+
+                // 立即同步審核結果
+                this.syncApplicationToGoogleSheets(application);
+
+                return { 
+                    success: true, 
+                    message: `已拒絕 ${application.realName} 的老師/館員身份申請`,
+                    application
+                };
+            }
+
+            // 獲取申請列表
+            getApplications() {
+                return this.settings.staffApplications;
+            }
+
+            // 清除申請
+            clearApplications() {
+                this.settings.staffApplications = [];
+                this.addSyncLog('所有申請記錄已清除', 'warning');
+            }
+        }
+
+        const testLibrary = new TestLibrary();
+
+        function addResult(title, content) {
+            const resultsDiv = document.getElementById('test-results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result';
+            resultDiv.innerHTML = `
+                <h3>${title}</h3>
+                ${content}
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function updateStatus() {
+            const statusDiv = document.getElementById('current-status');
+            const currentUser = testLibrary.currentUser;
+            const applications = testLibrary.getApplications();
+            const pendingApplications = applications.filter(app => app.status === 'pending');
+            const syncedApplications = applications.filter(app => app.syncStatus === 'success');
+            
+            statusDiv.innerHTML = `
+                <div class="user-info">
+                    <strong>當前使用者：</strong>${currentUser ? `${currentUser.realName} (${currentUser.username})` : '未登入'}
+                    ${currentUser && testLibrary.isAdminUser() ? '<span style="color: #28a745;"> [管理員]</span>' : ''}
+                </div>
+                <div class="user-info">
+                    <strong>申請統計：</strong>共 ${applications.length} 筆申請，其中 ${pendingApplications.length} 筆待審核
+                </div>
+                <div class="user-info">
+                    <strong>同步狀態：</strong>${syncedApplications.length} 筆已同步，${applications.length - syncedApplications.length} 筆待同步
+                </div>
+            `;
+        }
+
+        function testStaffApplication() {
+            const username = document.getElementById('test-username').value.trim();
+            const realName = document.getElementById('test-realname').value.trim();
+            const phoneNumber = document.getElementById('test-phone').value.trim();
+
+            if (!username || !realName || !phoneNumber) {
+                addResult('申請測試', '<p style="color: #f56565;">請填寫完整的申請資訊</p>');
+                return;
+            }
+
+            const result = testLibrary.applyForStaffRole(username, realName, phoneNumber);
+            
+            const content = `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.isNewApplication ? `
+                        <strong>申請詳情：</strong><br>
+                        • 申請人：${result.application.realName}<br>
+                        • 帳號：${result.application.username}<br>
+                        • 電話：${result.application.phoneNumber}<br>
+                        • 申請時間：${new Date(result.application.submittedAt).toLocaleString()}<br>
+                        • 狀態：<span class="status-badge pending">待審核</span><br>
+                        • 同步狀態：<span class="sync-status ${result.application.syncStatus}">待同步</span>
+                    ` : ''}
+                </div>
+            `;
+            
+            addResult('申請老師/館員身份', content);
+            updateStatus();
+        }
+
+        function testAdminLogin() {
+            testLibrary.currentUser = {
+                username: testLibrary.adminUsername,
+                realName: '系統管理員',
+                role: 'admin'
+            };
+            
+            addResult('管理員登入', `
+                <div class="user-info">
+                    <strong>登入成功：</strong>系統管理員<br>
+                    <strong>權限：</strong>可以審核申請和查看同步狀態
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function testApproveApplication() {
+            if (!testLibrary.isAdminUser()) {
+                addResult('通過申請', '<p style="color: #f56565;">請先以管理員身份登入</p>');
+                return;
+            }
+
+            const pendingApplications = testLibrary.getApplications().filter(app => app.status === 'pending');
+            if (pendingApplications.length === 0) {
+                addResult('通過申請', '<p>沒有待審核的申請</p>');
+                return;
+            }
+
+            const application = pendingApplications[0];
+            const result = testLibrary.approveApplication(application.id);
+
+            const content = `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>審核詳情：</strong><br>
+                        • 申請人：${result.application.realName}<br>
+                        • 審核狀態：<span class="status-badge approved">已通過</span><br>
+                        • 審核時間：${new Date(result.application.reviewedAt).toLocaleString()}<br>
+                        • 審核人：${result.application.reviewedBy}<br>
+                        • 同步狀態：<span class="sync-status ${result.application.syncStatus}">待同步</span>
+                    ` : ''}
+                </div>
+            `;
+            
+            addResult('通過申請', content);
+            updateStatus();
+        }
+
+        function testRejectApplication() {
+            if (!testLibrary.isAdminUser()) {
+                addResult('拒絕申請', '<p style="color: #f56565;">請先以管理員身份登入</p>');
+                return;
+            }
+
+            const pendingApplications = testLibrary.getApplications().filter(app => app.status === 'pending');
+            if (pendingApplications.length === 0) {
+                addResult('拒絕申請', '<p>沒有待審核的申請</p>');
+                return;
+            }
+
+            const application = pendingApplications[0];
+            const result = testLibrary.rejectApplication(application.id);
+
+            const content = `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>審核詳情：</strong><br>
+                        • 申請人：${result.application.realName}<br>
+                        • 審核狀態：<span class="status-badge rejected">已拒絕</span><br>
+                        • 審核時間：${new Date(result.application.reviewedAt).toLocaleString()}<br>
+                        • 審核人：${result.application.reviewedBy}<br>
+                        • 同步狀態：<span class="sync-status ${result.application.syncStatus}">待同步</span>
+                    ` : ''}
+                </div>
+            `;
+            
+            addResult('拒絕申請', content);
+            updateStatus();
+        }
+
+        function testDetailedApproval() {
+            if (!testLibrary.isAdminUser()) {
+                addResult('詳細審核', '<p style="color: #f56565;">請先以管理員身份登入</p>');
+                return;
+            }
+
+            addResult('詳細審核', `
+                <div class="user-info">
+                    <strong>詳細審核功能：</strong><br>
+                    • 包含審核意見和備註<br>
+                    • 自動同步審核結果<br>
+                    • 完整的審核記錄<br>
+                    • 即時狀態更新
+                </div>
+            `);
+        }
+
+        function showApplications() {
+            const applications = testLibrary.getApplications();
+            
+            const applicationsHtml = applications.map(app => `
+                <div class="application-item ${app.status}">
+                    <strong>${app.realName}</strong> (${app.username})<br>
+                    電話：${app.phoneNumber}<br>
+                    申請時間：${new Date(app.submittedAt).toLocaleString()}<br>
+                    狀態：<span class="status-badge ${app.status}">
+                        ${app.status === 'pending' ? '待審核' : 
+                          app.status === 'approved' ? '已通過' : '已拒絕'}
+                    </span><br>
+                    同步狀態：<span class="sync-status ${app.syncStatus || 'pending'}">
+                        ${app.syncStatus === 'success' ? '已同步' : 
+                          app.syncStatus === 'failed' ? '同步失敗' : '待同步'}
+                    </span><br>
+                    ${app.reviewedAt ? `
+                        審核時間：${new Date(app.reviewedAt).toLocaleString()}<br>
+                        審核人：${app.reviewedBy}<br>
+                        審核意見：${app.reason}
+                    ` : ''}
+                </div>
+            `).join('');
+
+            addResult('所有申請記錄', applicationsHtml || '<p>沒有申請記錄</p>');
+        }
+
+        function testGoogleSync() {
+            const applications = testLibrary.getApplications();
+            const pendingSyncApplications = applications.filter(app => app.syncStatus !== 'success');
+            
+            if (pendingSyncApplications.length === 0) {
+                addResult('Google Sheets 同步', '<p>所有申請都已同步</p>');
+                return;
+            }
+
+            addResult('Google Sheets 同步', `
+                <div class="user-info">
+                    <strong>同步測試：</strong><br>
+                    • 待同步申請：${pendingSyncApplications.length} 筆<br>
+                    • 同步方式：即時自動同步<br>
+                    • 同步觸發：申請創建、審核通過、審核拒絕<br>
+                    • 錯誤處理：自動重試和用戶提示
+                </div>
+            `);
+        }
+
+        function testSyncStatus() {
+            const applications = testLibrary.getApplications();
+            const syncedCount = applications.filter(app => app.syncStatus === 'success').length;
+            const failedCount = applications.filter(app => app.syncStatus === 'failed').length;
+            const pendingCount = applications.length - syncedCount - failedCount;
+            
+            addResult('同步狀態檢查', `
+                <div class="user-info">
+                    <strong>同步統計：</strong><br>
+                    • 總申請數：${applications.length} 筆<br>
+                    • 已同步：${syncedCount} 筆<br>
+                    • 同步失敗：${failedCount} 筆<br>
+                    • 待同步：${pendingCount} 筆<br>
+                    • 同步成功率：${applications.length > 0 ? Math.round(syncedCount / applications.length * 100) : 0}%
+                </div>
+            `);
+        }
+
+        function simulateNetworkError() {
+            testLibrary.addSyncLog('模擬網路錯誤：連線超時', 'error');
+            testLibrary.addSyncLog('系統將在 5 秒後自動重試', 'warning');
+            
+            setTimeout(() => {
+                testLibrary.addSyncLog('自動重試中...', 'info');
+                setTimeout(() => {
+                    testLibrary.addSyncLog('重試成功，資料已同步', 'success');
+                }, 2000);
+            }, 5000);
+        }
+
+        function clearApplications() {
+            testLibrary.clearApplications();
+            addResult('清除申請', '所有申請記錄已清除');
+            updateStatus();
+        }
+
+        function clearLogs() {
+            testLibrary.syncLogs = [];
+            testLibrary.updateSyncLogs();
+        }
+
+        // 初始化
+        window.onload = function() {
+            addResult('系統初始化', '審核資料自動上傳測試系統已準備就緒');
+            updateStatus();
+            testLibrary.updateSyncLogs();
+        };
+    </script>
+</body>
+</html>

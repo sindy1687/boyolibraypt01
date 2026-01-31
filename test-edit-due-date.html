@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>修改應還日期測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+        .borrowed-item { background: #f9f9f9; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #007bff; }
+        .book-title { font-weight: bold; color: #2d3748; margin-bottom: 8px; }
+        .book-details { font-size: 0.9rem; color: #718096; line-height: 1.5; }
+        .borrowed-actions { margin-top: 10px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; font-size: 0.85rem; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .result { margin: 10px 0; padding: 10px; background: #e7f3ff; border-radius: 4px; }
+        .admin-only { background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .modification-history { background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <h1>修改應還日期測試</h1>
+    
+    <div class="test-section">
+        <h2>模擬借閱記錄</h2>
+        <button class="btn btn-primary" onclick="createSampleBorrowedRecords()">建立範例借閱記錄</button>
+        <button class="btn btn-info" onclick="showBorrowedRecords()">顯示借閱記錄</button>
+    </div>
+
+    <div class="test-section">
+        <h2>管理員修改應還日期</h2>
+        <button class="btn btn-primary" onclick="testAdminEditDueDate()">管理員修改應還日期</button>
+        <button class="btn btn-info" onclick="testNonAdminEditDueDate()">非管理員嘗試修改</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試結果</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>借閱記錄列表</h2>
+        <div id="borrowed-list"></div>
+    </div>
+
+    <script>
+        // 模擬圖書館系統
+        class TestLibrary {
+            constructor() {
+                this.borrowedBooks = [];
+                this.currentUser = null;
+                this.adminUsername = 'sindy16872000';
+            }
+
+            // 檢查是否為管理員
+            isAdminUser() {
+                return this.currentUser && this.currentUser.username === this.adminUsername;
+            }
+
+            // 設定當前使用者
+            setCurrentUser(username, role = 'student') {
+                this.currentUser = { username, role };
+            }
+
+            // 建立範例借閱記錄
+            createSampleRecords() {
+                const now = new Date();
+                this.borrowedBooks = [
+                    {
+                        id: '1',
+                        bookId: 'B001',
+                        bookTitle: 'JavaScript 程式設計',
+                        userId: 'student1',
+                        borrowDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7天前借閱
+                        dueDate: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7天後到期
+                        returnedAt: null
+                    },
+                    {
+                        id: '2',
+                        bookId: 'B002',
+                        bookTitle: 'Python 資料科學',
+                        userId: 'student2',
+                        borrowDate: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3天前借閱
+                        dueDate: new Date(now.getTime() + 11 * 24 * 60 * 60 * 1000).toISOString(), // 11天後到期
+                        returnedAt: null
+                    },
+                    {
+                        id: '3',
+                        bookId: 'B003',
+                        bookTitle: 'HTML5 網頁設計',
+                        userId: 'teacher1',
+                        borrowDate: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10天前借閱
+                        dueDate: new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000).toISOString(), // 4天後到期
+                        returnedAt: null
+                    }
+                ];
+                return '已建立 3 筆範例借閱記錄';
+            }
+
+            // 修改應還日期
+            editDueDate(borrowId, newDueDate, reason) {
+                if (!this.isAdminUser()) {
+                    return { success: false, message: '只有管理員可以修改應還日期' };
+                }
+
+                const borrowRecord = this.borrowedBooks.find(b => b.id === borrowId);
+                if (!borrowRecord) {
+                    return { success: false, message: '找不到借閱記錄' };
+                }
+
+                const oldDueDate = new Date(borrowRecord.dueDate);
+                const newDueDateObj = new Date(newDueDate + 'T23:59:59');
+                
+                // 驗證新日期不能早於今天
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
+                if (newDueDateObj < today) {
+                    return { success: false, message: '新的應還日期不能早於今天' };
+                }
+
+                // 記錄修改歷史
+                if (!borrowRecord.modificationHistory) {
+                    borrowRecord.modificationHistory = [];
+                }
+                
+                borrowRecord.modificationHistory.push({
+                    modifiedAt: new Date().toISOString(),
+                    modifiedBy: this.currentUser.username,
+                    oldDueDate: oldDueDate.toISOString(),
+                    newDueDate: newDueDateObj.toISOString(),
+                    reason: reason || '未提供原因'
+                });
+
+                // 更新應還日期
+                borrowRecord.dueDate = newDueDateObj.toISOString();
+
+                return { 
+                    success: true, 
+                    message: `已成功修改應還日期至 ${newDueDateObj.toLocaleDateString()}`,
+                    bookTitle: borrowRecord.bookTitle,
+                    userId: borrowRecord.userId,
+                    oldDate: oldDueDate.toLocaleDateString(),
+                    newDate: newDueDateObj.toLocaleDateString()
+                };
+            }
+
+            // 獲取借閱記錄顯示
+            getBorrowedRecordsDisplay() {
+                const now = new Date();
+                return this.borrowedBooks.map(record => {
+                    const borrowDate = new Date(record.borrowDate);
+                    const dueDate = new Date(record.dueDate);
+                    const daysLeft = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+                    const isAdmin = this.isAdminUser();
+                    
+                    return `
+                        <div class="borrowed-item">
+                            <div class="book-title">${record.bookTitle}</div>
+                            <div class="book-details">
+                                <div>書碼：${record.bookId}</div>
+                                <div>借閱者：${record.userId}</div>
+                                <div>借閱日期：${borrowDate.toLocaleDateString()}</div>
+                                <div>應還日期：${dueDate.toLocaleDateString()}</div>
+                                <div>剩餘 ${daysLeft} 天</div>
+                            </div>
+                            <div class="borrowed-actions">
+                                ${isAdmin ? `
+                                    <button class="btn btn-info" onclick="testEditDueDate('${record.id}')">
+                                        <i class="fas fa-calendar-edit"></i> 修改日期
+                                    </button>
+                                ` : '<span class="admin-only">只有管理員可以修改應還日期</span>'}
+                                <button class="btn btn-success">歸還</button>
+                            </div>
+                            ${record.modificationHistory ? `
+                                <div class="modification-history">
+                                    <strong>修改歷史：</strong>
+                                    ${record.modificationHistory.map(mod => 
+                                        `${new Date(mod.modifiedAt).toLocaleDateString()} 由 ${mod.modifiedBy} 修改為 ${new Date(mod.newDueDate).toLocaleDateString()} (${mod.reason})`
+                                    ).join('<br>')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        const testLibrary = new TestLibrary();
+
+        function addResult(title, content) {
+            const resultsDiv = document.getElementById('test-results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result';
+            resultDiv.innerHTML = `
+                <h3>${title}</h3>
+                ${content}
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function createSampleBorrowedRecords() {
+            const result = testLibrary.createSampleRecords();
+            addResult('建立範例借閱記錄', result);
+            showBorrowedRecords();
+        }
+
+        function showBorrowedRecords() {
+            const listDiv = document.getElementById('borrowed-list');
+            listDiv.innerHTML = testLibrary.getBorrowedRecordsDisplay();
+        }
+
+        function testAdminEditDueDate() {
+            testLibrary.setCurrentUser('sindy16872000', 'admin');
+            
+            // 模擬修改第一筆記錄的應還日期
+            const newDate = new Date();
+            newDate.setDate(newDate.getDate() + 14); // 設定為14天後
+            
+            const result = testLibrary.editDueDate('1', newDate.toISOString().split('T')[0], '學生請求延期');
+            
+            addResult('管理員修改應還日期', `
+                <div class="admin-only">
+                    <strong>操作者：</strong>${testLibrary.currentUser.username} (管理員)<br>
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>書籍：</strong>${result.bookTitle}<br>
+                        <strong>借閱者：</strong>${result.userId}<br>
+                        <strong>原應還日期：</strong>${result.oldDate}<br>
+                        <strong>新應還日期：</strong>${result.newDate}
+                    ` : ''}
+                </div>
+            `);
+            
+            showBorrowedRecords();
+        }
+
+        function testNonAdminEditDueDate() {
+            testLibrary.setCurrentUser('student1', 'student');
+            
+            const newDate = new Date();
+            newDate.setDate(newDate.getDate() + 14);
+            
+            const result = testLibrary.editDueDate('2', newDate.toISOString().split('T')[0], '學生請求延期');
+            
+            addResult('非管理員嘗試修改應還日期', `
+                <div class="admin-only">
+                    <strong>操作者：</strong>${testLibrary.currentUser.username} (學生)<br>
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}
+                </div>
+            `);
+        }
+
+        function testEditDueDate(borrowId) {
+            const newDate = new Date();
+            newDate.setDate(newDate.getDate() + 21); // 設定為21天後
+            
+            const result = testLibrary.editDueDate(borrowId, newDate.toISOString().split('T')[0], '測試修改');
+            
+            if (result.success) {
+                alert(`修改成功！\n書籍：${result.bookTitle}\n原應還日期：${result.oldDate}\n新應還日期：${result.newDate}`);
+                showBorrowedRecords();
+            } else {
+                alert(`修改失敗：${result.message}`);
+            }
+        }
+
+        // 初始化
+        window.onload = function() {
+            addResult('系統初始化', '測試系統已準備就緒');
+        };
+    </script>
+</body>
+</html>

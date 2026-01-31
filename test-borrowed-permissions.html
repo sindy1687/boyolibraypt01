@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>借閱記錄權限測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+        .user-info { background: #f0f8ff; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .borrowed-list { background: #f9f9f9; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .result { margin: 10px 0; padding: 10px; background: #e7f3ff; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>借閱記錄權限測試</h1>
+    
+    <div class="test-section">
+        <h2>測試不同使用者角色的借閱記錄存取權限</h2>
+        <button class="btn btn-primary" onclick="testAdmin()">測試管理員 (sindy16872000)</button>
+        <button class="btn btn-primary" onclick="testStaff()">測試老師/館員</button>
+        <button class="btn btn-primary" onclick="testStudent()">測試學生</button>
+        <button class="btn btn-primary" onclick="testGuest()">測試訪客</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試結果</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <script>
+        // 模擬圖書館系統
+        class TestLibrary {
+            constructor() {
+                this.borrowedBooks = [
+                    { id: '1', bookId: 'A0001', bookTitle: '小熊維尼', userId: 'student1', borrowDate: '2024-01-15', returnedAt: null },
+                    { id: '2', bookId: 'A0002', bookTitle: '小紅帽', userId: 'student2', borrowDate: '2024-01-16', returnedAt: null },
+                    { id: '3', bookId: 'B0001', bookTitle: '三個問號偵探團', userId: 'student1', borrowDate: '2024-01-17', returnedAt: null },
+                    { id: '4', bookId: 'B0002', bookTitle: '月光古堡', userId: 'teacher1', borrowDate: '2024-01-18', returnedAt: null },
+                    { id: '5', bookId: 'C0001', bookTitle: '生命簡史', userId: 'student3', borrowDate: '2024-01-19', returnedAt: '2024-01-25' }, // 已歸還
+                ];
+                this.adminUsername = 'sindy16872000';
+            }
+
+            isAdminUser() {
+                return !!(this.currentUser && this.currentUser.username === this.adminUsername);
+            }
+
+            renderBorrowedBooks() {
+                if (!this.currentUser) {
+                    return '請先登入';
+                }
+
+                // 根據使用者角色決定顯示範圍
+                let borrowedBooks;
+                if (this.isAdminUser()) {
+                    // 只有管理員可以看到所有借閱記錄
+                    borrowedBooks = this.borrowedBooks.filter(b => !b.returnedAt);
+                } else {
+                    // 其他使用者只能看到自己的借閱記錄
+                    borrowedBooks = this.borrowedBooks.filter(
+                        b => b.userId === this.currentUser.username && !b.returnedAt
+                    );
+                }
+
+                if (borrowedBooks.length === 0) {
+                    const message = this.isAdminUser() 
+                        ? '目前沒有借閱記錄' 
+                        : '您目前沒有借閱記錄';
+                    return message;
+                }
+
+                return borrowedBooks.map(book => 
+                    `${book.bookTitle} (${book.bookId}) - 借閱者: ${book.userId}`
+                ).join('\n');
+            }
+
+            exportBorrowedToExcel() {
+                if (!this.currentUser) {
+                    return '請先登入後再匯出';
+                }
+
+                // 依角色決定匯出內容
+                let records;
+                if (this.isAdminUser()) {
+                    records = this.borrowedBooks.filter(b => !b.returnedAt);
+                } else {
+                    records = this.borrowedBooks.filter(b => b.userId === this.currentUser.username && !b.returnedAt);
+                }
+
+                if (!records || records.length === 0) {
+                    return '沒有可匯出的借閱記錄';
+                }
+
+                // 管理員：匯出全部記錄
+                if (this.isAdminUser()) {
+                    return `管理員匯出：全部 ${records.length} 筆借閱記錄`;
+                } else {
+                    // 普通使用者：匯出自己的記錄
+                    return `${this.currentUser.username} 匯出：個人 ${records.length} 筆借閱記錄`;
+                }
+            }
+
+            setCurrentUser(user) {
+                this.currentUser = user;
+            }
+        }
+
+        const testLibrary = new TestLibrary();
+
+        function addResult(title, content) {
+            const resultsDiv = document.getElementById('test-results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result';
+            resultDiv.innerHTML = `
+                <h3>${title}</h3>
+                <div class="user-info">使用者: ${testLibrary.currentUser.username} (${testLibrary.currentUser.role})</div>
+                <div class="borrowed-list">
+                    <strong>可見的借閱記錄:</strong><br>
+                    <pre>${testLibrary.renderBorrowedBooks()}</pre>
+                </div>
+                <div><strong>匯出結果:</strong> ${testLibrary.exportBorrowedToExcel()}</div>
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function testAdmin() {
+            testLibrary.setCurrentUser({ username: 'sindy16872000', role: 'admin' });
+            addResult('管理員測試', testLibrary.renderBorrowedBooks());
+        }
+
+        function testStaff() {
+            testLibrary.setCurrentUser({ username: 'teacher1', role: 'staff' });
+            addResult('老師/館員測試', testLibrary.renderBorrowedBooks());
+        }
+
+        function testStudent() {
+            testLibrary.setCurrentUser({ username: 'student1', role: 'student' });
+            addResult('學生測試', testLibrary.renderBorrowedBooks());
+        }
+
+        function testGuest() {
+            testLibrary.setCurrentUser({ username: 'guest1', role: 'guest' });
+            addResult('訪客測試', testLibrary.renderBorrowedBooks());
+        }
+    </script>
+</body>
+</html>

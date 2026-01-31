@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>簡單登入功能測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+        .user-info { background: #f0f8ff; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .login-demo { background: #fff3cd; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #ffc107; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-outline { background: transparent; border: 1px solid #007bff; color: #007bff; }
+        .result { margin: 10px 0; padding: 10px; background: #e7f3ff; border-radius: 4px; }
+        .form-group { margin: 10px 0; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select { 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            box-sizing: border-box;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-block;
+            margin: 2px;
+        }
+        .status-badge.new { background: #c6f6d5; color: #22543d; }
+        .status-badge.returning { background: #bee3f8; color: #2c5282; }
+        .login-modes {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .login-mode {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #f8f9fa;
+        }
+        .login-mode.active {
+            border-color: #007bff;
+            background: #e7f3ff;
+        }
+        .warning-box {
+            background: #fef3c7;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            border-left: 4px solid #f59e0b;
+        }
+    </style>
+</head>
+<body>
+    <h1>簡單登入功能測試</h1>
+    
+    <div class="test-section">
+        <h2>系統說明</h2>
+        <div class="login-demo">
+            <h3>簡單登入流程</h3>
+            <ul>
+                <li><strong>第一步：</strong>輸入使用者名稱</li>
+                <li><strong>第二步：</strong>系統自動檢查使用者是否存在</li>
+                <li><strong>第三步：</strong>存在則直接登入，不存在則顯示註冊表單</li>
+                <li><strong>第四步：</strong>填寫註冊資料完成註冊並登入</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>模擬登入系統</h2>
+        <div class="login-modes">
+            <div class="login-mode active" id="simple-mode">
+                <h4><i class="fas fa-sign-in-alt"></i> 簡單登入模式</h4>
+                <div class="form-group">
+                    <label>使用者名稱：</label>
+                    <input type="text" id="demo-username" placeholder="輸入使用者名稱">
+                </div>
+                <button class="btn btn-primary" onclick="demoSimpleLogin()">登入</button>
+            </div>
+            <div class="login-mode" id="register-mode">
+                <h4><i class="fas fa-user-plus"></i> 註冊模式</h4>
+                <div class="warning-box">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>找不到您的帳號</strong>
+                    <p>系統中沒有找到您的使用者資訊，請填寫以下資料進行註冊：</p>
+                </div>
+                <div class="form-group">
+                    <label>使用者名稱：</label>
+                    <input type="text" id="demo-register-username" placeholder="輸入使用者名稱">
+                </div>
+                <div class="form-group">
+                    <label>真實姓名：</label>
+                    <input type="text" id="demo-realname" placeholder="輸入真實姓名">
+                </div>
+                <div class="form-group">
+                    <label>電話號碼：</label>
+                    <input type="tel" id="demo-phone" placeholder="0912345678">
+                </div>
+                <div class="form-group">
+                    <label>角色：</label>
+                    <select id="demo-role">
+                        <option value="student">學生</option>
+                        <option value="staff">老師/館員</option>
+                    </select>
+                </div>
+                <button class="btn btn-outline" onclick="demoBackToLogin()">返回登入</button>
+                <button class="btn btn-primary" onclick="demoRegister()">註冊並登入</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>創建測試使用者</h2>
+        <button class="btn btn-success" onclick="createTestUsers()">創建測試使用者</button>
+        <button class="btn btn-info" onclick="showTestUsers()">顯示測試使用者</button>
+        <button class="btn btn-warning" onclick="clearTestUsers()">清除測試使用者</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試場景</h2>
+        <button class="btn btn-primary" onclick="testExistingUser()">測試：現有使用者登入</button>
+        <button class="btn btn-success" onclick="testNewUser()">測試：新使用者註冊</button>
+        <button class="btn btn-info" onclick="testAdminLogin()">測試：管理員登入</button>
+        <button class="btn btn-warning" onclick="testStaffApplication()">測試：老師身份申請</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試結果</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>當前狀態</h2>
+        <div id="current-status"></div>
+    </div>
+
+    <script>
+        // 模擬圖書館系統
+        class TestLibrary {
+            constructor() {
+                this.users = [];
+                this.currentUser = null;
+                this.adminUsername = 'sindy16872000';
+                this.settings = {
+                    staffApplications: []
+                };
+            }
+
+            // 檢查是否為管理員
+            isAdminUser() {
+                return this.currentUser && this.currentUser.username === this.adminUsername;
+            }
+
+            // 檢查使用者是否存在
+            checkUserExists(username) {
+                return this.users.some(user => user.username === username) || 
+                       username === this.adminUsername;
+            }
+
+            // 獲取使用者資訊
+            getUserInfo(username) {
+                if (username === this.adminUsername) {
+                    return {
+                        username: this.adminUsername,
+                        realName: '系統管理員',
+                        phoneNumber: '0912345678',
+                        role: 'admin'
+                    };
+                }
+                
+                const user = this.users.find(u => u.username === username);
+                if (user) {
+                    return user;
+                }
+                
+                return null;
+            }
+
+            // 處理簡單登入
+            handleSimpleLogin(username) {
+                if (!username) {
+                    return { success: false, message: '請輸入使用者名稱' };
+                }
+
+                // 檢查是否為管理員
+                if (username === this.adminUsername) {
+                    this.currentUser = { 
+                        username: this.adminUsername, 
+                        realName: '系統管理員', 
+                        phoneNumber: '0912345678', 
+                        role: 'admin' 
+                    };
+                    
+                    return { 
+                        success: true, 
+                        message: '歡迎回來，系統管理員！',
+                        user: this.currentUser,
+                        loginType: 'admin'
+                    };
+                }
+
+                // 檢查使用者是否存在
+                const userInfo = this.getUserInfo(username);
+                if (userInfo) {
+                    // 使用者存在，直接登入
+                    return this.loginExistingUser(userInfo);
+                } else {
+                    // 使用者不存在，需要註冊
+                    return { 
+                        success: false, 
+                        message: '找不到使用者，需要註冊',
+                        needRegister: true,
+                        username
+                    };
+                }
+            }
+
+            // 登入現有使用者
+            loginExistingUser(userInfo) {
+                // 檢查老師/館員身份申請狀態
+                let finalRole = userInfo.role;
+                let message = `歡迎回來，${userInfo.realName}！`;
+                
+                if (userInfo.role === 'staff') {
+                    const existingApplication = this.settings.staffApplications.find(
+                        app => app.username === userInfo.username && app.status === 'approved'
+                    );
+                    
+                    const pendingApplication = this.settings.staffApplications.find(
+                        app => app.username === userInfo.username && app.status === 'pending'
+                    );
+
+                    if (!existingApplication && !pendingApplication) {
+                        // 需要重新申請
+                        finalRole = 'student';
+                        message = '您的老師/館員身份需要重新申請';
+                    } else if (pendingApplication) {
+                        // 有待審核的申請，以學生身份使用
+                        finalRole = 'student';
+                        message = '您的老師/館員身份申請正在審核中，請耐心等候';
+                    }
+                }
+
+                // 設定當前使用者
+                this.currentUser = { 
+                    username: userInfo.username, 
+                    realName: userInfo.realName, 
+                    phoneNumber: userInfo.phoneNumber, 
+                    role: finalRole 
+                };
+
+                return { 
+                    success: true, 
+                    message,
+                    user: this.currentUser,
+                    loginType: 'existing'
+                };
+            }
+
+            // 處理註冊
+            handleRegister(username, realName, phoneNumber, role) {
+                if (!username || !realName || !phoneNumber) {
+                    return { success: false, message: '請填寫完整資訊' };
+                }
+
+                // 驗證電話號碼格式（10位數字）
+                if (!/^[0-9]{10}$/.test(phoneNumber)) {
+                    return { success: false, message: '電話號碼必須是10位數字' };
+                }
+
+                // 檢查使用者名稱是否已存在
+                if (this.checkUserExists(username)) {
+                    return { success: false, message: '使用者名稱已存在，請直接登入' };
+                }
+
+                // 處理老師/館員身份申請
+                let finalRole = role;
+                let message = `歡迎 ${realName}！註冊成功`;
+                
+                if (role === 'staff') {
+                    // 創建新的申請記錄
+                    const application = {
+                        id: Date.now().toString(),
+                        username,
+                        realName,
+                        phoneNumber,
+                        requestedRole: 'staff',
+                        status: 'pending',
+                        submittedAt: new Date().toISOString(),
+                        reviewedAt: null,
+                        reviewedBy: null,
+                        decision: null,
+                        reason: null,
+                        note: null
+                    };
+
+                    this.settings.staffApplications.push(application);
+
+                    // 申請人暫時以學生身份使用
+                    finalRole = 'student';
+                    message = '老師/館員身份申請已提交，審核通過前將以學生身份使用系統';
+                }
+
+                // 創建新使用者
+                const newUser = {
+                    username,
+                    realName,
+                    phoneNumber,
+                    role: finalRole,
+                    lastLogin: new Date().toISOString()
+                };
+
+                this.users.push(newUser);
+
+                // 設定當前使用者
+                this.currentUser = { 
+                    username, 
+                    realName, 
+                    phoneNumber, 
+                    role: finalRole 
+                };
+
+                return { 
+                    success: true, 
+                    message,
+                    user: this.currentUser,
+                    loginType: 'new'
+                };
+            }
+
+            // 創建測試使用者
+            createTestUsers() {
+                const testUsers = [
+                    {
+                        username: 'student1',
+                        realName: '王小明',
+                        phoneNumber: '0912345678',
+                        role: 'student',
+                        lastLogin: new Date().toISOString()
+                    },
+                    {
+                        username: 'teacher1',
+                        realName: '張老師',
+                        phoneNumber: '0987654321',
+                        role: 'staff',
+                        lastLogin: new Date().toISOString()
+                    },
+                    {
+                        username: 'student2',
+                        realName: '李小華',
+                        phoneNumber: '0923456789',
+                        role: 'student',
+                        lastLogin: new Date().toISOString()
+                    }
+                ];
+
+                testUsers.forEach(user => {
+                    const existingIndex = this.users.findIndex(u => u.username === user.username);
+                    if (existingIndex === -1) {
+                        this.users.push(user);
+                    }
+                });
+
+                return '已創建 3 個測試使用者';
+            }
+
+            // 清除測試使用者
+            clearTestUsers() {
+                this.users = [];
+                this.currentUser = null;
+                return '所有測試使用者已清除';
+            }
+        }
+
+        const testLibrary = new TestLibrary();
+
+        function addResult(title, content) {
+            const resultsDiv = document.getElementById('test-results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result';
+            resultDiv.innerHTML = `
+                <h3>${title}</h3>
+                ${content}
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function updateStatus() {
+            const statusDiv = document.getElementById('current-status');
+            const currentUser = testLibrary.currentUser;
+            
+            statusDiv.innerHTML = `
+                <div class="user-info">
+                    <strong>當前使用者：</strong>${currentUser ? `${currentUser.realName} (${currentUser.username}) - ${currentUser.role}` : '未登入'}
+                    ${currentUser && testLibrary.isAdminUser() ? '<span style="color: #28a745;"> [管理員]</span>' : ''}
+                </div>
+                <div class="user-info">
+                    <strong>系統使用者數：</strong>${testLibrary.users.length} 位
+                </div>
+            `;
+        }
+
+        function demoSimpleLogin() {
+            const username = document.getElementById('demo-username').value.trim();
+            
+            if (!username) {
+                addResult('簡單登入', '<p style="color: #f56565;">請輸入使用者名稱</p>');
+                return;
+            }
+
+            const result = testLibrary.handleSimpleLogin(username);
+            
+            if (result.success) {
+                // 登入成功
+                addResult('簡單登入', `
+                    <div class="user-info">
+                        <strong>登入成功！</strong><br>
+                        <strong>訊息：</strong>${result.message}<br>
+                        <strong>使用者：</strong>${result.user.realName} (${result.user.username})<br>
+                        <strong>角色：</strong>${result.user.role}<br>
+                        <strong>登入類型：</strong>${result.loginType === 'admin' ? '管理員' : result.loginType === 'existing' ? '現有使用者' : '新使用者'}
+                    </div>
+                `);
+                
+                updateStatus();
+            } else {
+                if (result.needRegister) {
+                    // 需要註冊，切換到註冊模式
+                    document.getElementById('simple-mode').classList.remove('active');
+                    document.getElementById('register-mode').classList.add('active');
+                    
+                    // 預設填入使用者名稱
+                    document.getElementById('demo-register-username').value = result.username;
+                    
+                    addResult('簡單登入', `
+                        <div class="user-info">
+                            <strong>需要註冊：</strong><br>
+                            <strong>訊息：</strong>${result.message}<br>
+                            <strong>使用者名稱：</strong>${result.username}<br>
+                            <strong>操作：</strong>已切換到註冊模式
+                        </div>
+                    `);
+                } else {
+                    addResult('簡單登入', `
+                        <div class="user-info">
+                            <strong>登入失敗：</strong><br>
+                            <strong>訊息：</strong>${result.message}
+                        </div>
+                    `);
+                }
+            }
+        }
+
+        function demoRegister() {
+            const username = document.getElementById('demo-register-username').value.trim();
+            const realName = document.getElementById('demo-realname').value.trim();
+            const phoneNumber = document.getElementById('demo-phone').value.trim();
+            const role = document.getElementById('demo-role').value;
+
+            if (!username || !realName || !phoneNumber) {
+                addResult('註冊', '<p style="color: #f56565;">請填寫完整資訊</p>');
+                return;
+            }
+
+            const result = testLibrary.handleRegister(username, realName, phoneNumber, role);
+            
+            if (result.success) {
+                // 註冊成功，切換回登入模式
+                document.getElementById('register-mode').classList.remove('active');
+                document.getElementById('simple-mode').classList.add('active');
+                
+                // 清空表單
+                document.getElementById('demo-username').value = '';
+                document.getElementById('demo-realname').value = '';
+                document.getElementById('demo-phone').value = '';
+                
+                addResult('註冊', `
+                    <div class="user-info">
+                        <strong>註冊成功！</strong><br>
+                        <strong>訊息：</strong>${result.message}<br>
+                        <strong>使用者：</strong>${result.user.realName} (${result.user.username})<br>
+                        <strong>角色：</strong>${result.user.role}<br>
+                        <strong>登入類型：</strong>${result.loginType === 'new' ? '新使用者' : '現有使用者'}
+                    </div>
+                `);
+                
+                updateStatus();
+            } else {
+                addResult('註冊', `
+                    <div class="user-info">
+                        <strong>註冊失敗：</strong><br>
+                        <strong>訊息：</strong>${result.message}
+                    </div>
+                `);
+            }
+        }
+
+        function demoBackToLogin() {
+            document.getElementById('register-mode').classList.remove('active');
+            document.getElementById('simple-mode').classList.add('active');
+            
+            // 清空註冊表單
+            document.getElementById('demo-register-username').value = '';
+            document.getElementById('demo-realname').value = '';
+            document.getElementById('demo-phone').value = '';
+        }
+
+        function createTestUsers() {
+            const result = testLibrary.createTestUsers();
+            addResult('創建測試使用者', result);
+            updateStatus();
+        }
+
+        function showTestUsers() {
+            const usersHtml = testLibrary.users.map(user => `
+                <div class="user-info">
+                    <strong>${user.realName}</strong> (${user.username})<br>
+                    角色：${user.role}<br>
+                    電話：${user.phoneNumber}<br>
+                    最後登入：${new Date(user.lastLogin).toLocaleString()}
+                </div>
+            `).join('');
+
+            addResult('測試使用者列表', usersHtml || '<p>沒有測試使用者</p>');
+        }
+
+        function clearTestUsers() {
+            const result = testLibrary.clearTestUsers();
+            addResult('清除測試使用者', result);
+            updateStatus();
+        }
+
+        function testExistingUser() {
+            // 預設填入現有使用者
+            document.getElementById('demo-username').value = 'student1';
+            addResult('測試：現有使用者登入', `
+                <div class="user-info">
+                    <strong>測試場景：</strong>現有使用者登入<br>
+                    <strong>預期行為：</strong><br>
+                    • 輸入 'student1' 後直接登入<br>
+                    • 顯示歡迎回來訊息<br>
+                    • 不需要填寫註冊資料
+                </div>
+            `);
+        }
+
+        function testNewUser() {
+            // 預設填入新使用者
+            document.getElementById('demo-username').value = 'newuser';
+            addResult('測試：新使用者註冊', `
+                <div class="user-info">
+                    <strong>測試場景：</strong>新使用者註冊<br>
+                    <strong>預期行為：</strong><br>
+                    • 輸入 'newuser' 後顯示註冊表單<br>
+                    • 填寫完整資料後註冊成功<br>
+                    • 自動登入系統
+                </div>
+            `);
+        }
+
+        function testAdminLogin() {
+            // 預設填入管理員
+            document.getElementById('demo-username').value = 'sindy16872000';
+            addResult('測試：管理員登入', `
+                <div class="user-info">
+                    <strong>測試場景：</strong>管理員登入<br>
+                    <strong>預期行為：</strong><br>
+                    • 輸入 'sindy16872000' 後直接登入<br>
+                    • 顯示管理員歡迎訊息<br>
+                    • 獲得管理員權限
+                </div>
+            `);
+        }
+
+        function testStaffApplication() {
+            // 預設填入老師申請
+            document.getElementById('demo-username').value = 'newteacher';
+            addResult('測試：老師身份申請', `
+                <div class="user-info">
+                    <strong>測試場景：</strong>老師身份申請<br>
+                    <strong>預期行為：</strong><br>
+                    • 輸入 'newteacher' 後顯示註冊表單<br>
+                    • 選擇老師/館員角色<br>
+                    • 創建申請記錄，暫時以學生身份使用
+                </div>
+            `);
+        }
+
+        // 初始化
+        window.onload = function() {
+            addResult('系統初始化', '簡單登入測試系統已準備就緒');
+            updateStatus();
+        };
+    </script>
+</body>
+</html>

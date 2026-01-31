@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能登入系統測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+        .user-info { background: #f0f8ff; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .login-demo { background: #fff3cd; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #ffc107; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-outline { background: transparent; border: 1px solid #007bff; color: #007bff; }
+        .result { margin: 10px 0; padding: 10px; background: #e7f3ff; border-radius: 4px; }
+        .form-group { margin: 10px 0; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select { 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            box-sizing: border-box;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-block;
+            margin: 2px;
+        }
+        .status-badge.new { background: #c6f6d5; color: #22543d; }
+        .status-badge.returning { background: #bee3f8; color: #2c5282; }
+        .login-modes {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .login-mode {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #f8f9fa;
+        }
+        .login-mode.active {
+            border-color: #007bff;
+            background: #e7f3ff;
+        }
+    </style>
+</head>
+<body>
+    <h1>智能登入系統測試</h1>
+    
+    <div class="test-section">
+        <h2>系統說明</h2>
+        <div class="login-demo">
+            <h3>智能登入功能</h3>
+            <ul>
+                <li><strong>第一次登入：</strong>需要填寫完整資料（使用者名稱、真實姓名、電話號碼、角色）</li>
+                <li><strong>第二次登入：</strong>只需要輸入使用者名稱即可快速登入</li>
+                <li><strong>智能檢測：</strong>系統會自動檢測使用者是否存在並切換登入模式</li>
+                <li><strong>模式切換：</strong>使用者可以手動切換登入模式</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>模擬登入系統</h2>
+        <div class="login-modes">
+            <div class="login-mode" id="quick-mode">
+                <h4><i class="fas fa-bolt"></i> 快速登入模式</h4>
+                <div class="form-group">
+                    <label>使用者名稱：</label>
+                    <input type="text" id="demo-quick-username" placeholder="輸入已註冊的使用者名稱">
+                </div>
+                <button class="btn btn-primary" onclick="demoQuickLogin()">快速登入</button>
+                <button class="btn btn-outline" onclick="demoSwitchToFull()">第一次使用？</button>
+            </div>
+            <div class="login-mode active" id="full-mode">
+                <h4><i class="fas fa-user-edit"></i> 完整登入模式</h4>
+                <div class="form-group">
+                    <label>使用者名稱：</label>
+                    <input type="text" id="demo-username" placeholder="輸入使用者名稱">
+                </div>
+                <div id="demo-user-details">
+                    <div class="form-group">
+                        <label>真實姓名：</label>
+                        <input type="text" id="demo-realname" placeholder="輸入真實姓名">
+                    </div>
+                    <div class="form-group">
+                        <label>電話號碼：</label>
+                        <input type="tel" id="demo-phone" placeholder="0912345678">
+                    </div>
+                    <div class="form-group">
+                        <label>角色：</label>
+                        <select id="demo-role">
+                            <option value="student">學生</option>
+                            <option value="staff">老師/館員</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="demoFullLogin()">登入</button>
+                <button class="btn btn-outline" id="demo-switch-quick" onclick="demoSwitchToQuick()" style="display: none;">已註冊？快速登入</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>創建測試使用者</h2>
+        <button class="btn btn-success" onclick="createTestUsers()">創建測試使用者</button>
+        <button class="btn btn-info" onclick="showTestUsers()">顯示測試使用者</button>
+        <button class="btn btn-warning" onclick="clearTestUsers()">清除測試使用者</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試場景</h2>
+        <button class="btn btn-primary" onclick="testNewUser()">測試：新使用者第一次登入</button>
+        <button class="btn btn-success" onclick="testReturningUser()">測試：老使用者快速登入</button>
+        <button class="btn btn-info" onclick="testSmartDetection()">測試：智能檢測</button>
+        <button class="btn btn-warning" onclick="testModeSwitch()">測試：模式切換</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試結果</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>當前狀態</h2>
+        <div id="current-status"></div>
+    </div>
+
+    <script>
+        // 模擬圖書館系統
+        class TestLibrary {
+            constructor() {
+                this.users = [];
+                this.currentUser = null;
+                this.adminUsername = 'sindy16872000';
+                this.currentLoginMode = 'full'; // full or quick
+            }
+
+            // 檢查使用者是否存在
+            checkUserExists(username) {
+                return this.users.some(user => user.username === username) || 
+                       username === this.adminUsername;
+            }
+
+            // 獲取使用者資訊
+            getUserInfo(username) {
+                if (username === this.adminUsername) {
+                    return {
+                        username: this.adminUsername,
+                        realName: '系統管理員',
+                        phoneNumber: '0912345678',
+                        role: 'admin'
+                    };
+                }
+                
+                const user = this.users.find(u => u.username === username);
+                if (user) {
+                    return user;
+                }
+                
+                return null;
+            }
+
+            // 智能登入檢查
+            checkLoginMode(username) {
+                if (!username) {
+                    this.switchToFullLogin();
+                    return;
+                }
+
+                const userExists = this.checkUserExists(username);
+
+                if (userExists) {
+                    // 使用者存在，顯示快速登入按鈕
+                    document.getElementById('demo-switch-quick').style.display = 'block';
+                    document.getElementById('demo-user-details').style.opacity = '0.6';
+                } else {
+                    // 使用者不存在，隱藏快速登入按鈕
+                    document.getElementById('demo-switch-quick').style.display = 'none';
+                    document.getElementById('demo-user-details').style.opacity = '1';
+                }
+            }
+
+            // 切換到快速登入模式
+            switchToQuickLogin() {
+                this.currentLoginMode = 'quick';
+                document.getElementById('quick-mode').classList.add('active');
+                document.getElementById('full-mode').classList.remove('active');
+                
+                // 複製使用者名稱
+                const username = document.getElementById('demo-username').value;
+                document.getElementById('demo-quick-username').value = username;
+                
+                // 聚焦
+                document.getElementById('demo-quick-username').focus();
+            }
+
+            // 切換到完整登入模式
+            switchToFullLogin() {
+                this.currentLoginMode = 'full';
+                document.getElementById('full-mode').classList.add('active');
+                document.getElementById('quick-mode').classList.remove('active');
+                
+                // 複製使用者名稱
+                const username = document.getElementById('demo-quick-username').value;
+                document.getElementById('demo-username').value = username;
+                
+                // 聚焦
+                document.getElementById('demo-username').focus();
+            }
+
+            // 處理快速登入
+            quickLogin(username) {
+                if (!username) {
+                    return { success: false, message: '請輸入使用者名稱' };
+                }
+
+                const userInfo = this.getUserInfo(username);
+                if (!userInfo) {
+                    return { success: false, message: '找不到使用者資訊，請先註冊' };
+                }
+
+                this.currentUser = userInfo;
+                return { 
+                    success: true, 
+                    message: `歡迎回來，${userInfo.realName}！`,
+                    user: userInfo,
+                    loginMode: 'quick'
+                };
+            }
+
+            // 處理完整登入
+            fullLogin(username, realName, phoneNumber, role) {
+                if (!username || !realName || !phoneNumber) {
+                    return { success: false, message: '請填寫完整資訊' };
+                }
+
+                if (!/^[0-9]{10}$/.test(phoneNumber)) {
+                    return { success: false, message: '電話號碼必須是10位數字' };
+                }
+
+                // 檢查是否為管理員
+                const isAdmin = username === this.adminUsername;
+                
+                // 檢查是否為新使用者
+                const isNewUser = !this.checkUserExists(username);
+
+                if (isNewUser) {
+                    // 創建新使用者
+                    const newUser = {
+                        username,
+                        realName,
+                        phoneNumber,
+                        role,
+                        lastLogin: new Date().toISOString()
+                    };
+
+                    this.users.push(newUser);
+                    this.currentUser = newUser;
+
+                    return { 
+                        success: true, 
+                        message: `歡迎 ${realName}！註冊成功`,
+                        user: newUser,
+                        loginMode: 'full',
+                        isNewUser: true
+                    };
+                } else {
+                    // 老使用者登入
+                    const userInfo = this.getUserInfo(username);
+                    this.currentUser = userInfo;
+
+                    return { 
+                        success: true, 
+                        message: `歡迎回來，${userInfo.realName}！`,
+                        user: userInfo,
+                        loginMode: 'full',
+                        isNewUser: false
+                    };
+                }
+            }
+
+            // 登出
+            logout() {
+                const username = this.currentUser ? this.currentUser.username : '';
+                this.currentUser = null;
+                return { success: true, message: `${username} 已登出` };
+            }
+
+            // 創建測試使用者
+            createTestUsers() {
+                const testUsers = [
+                    {
+                        username: 'student1',
+                        realName: '王小明',
+                        phoneNumber: '0912345678',
+                        role: 'student',
+                        lastLogin: new Date().toISOString()
+                    },
+                    {
+                        username: 'teacher1',
+                        realName: '張老師',
+                        phoneNumber: '0987654321',
+                        role: 'staff',
+                        lastLogin: new Date().toISOString()
+                    },
+                    {
+                        username: 'student2',
+                        realName: '李小華',
+                        phoneNumber: '0923456789',
+                        role: 'student',
+                        lastLogin: new Date().toISOString()
+                    }
+                ];
+
+                testUsers.forEach(user => {
+                    const existingIndex = this.users.findIndex(u => u.username === user.username);
+                    if (existingIndex === -1) {
+                        this.users.push(user);
+                    }
+                });
+
+                return '已創建 3 個測試使用者';
+            }
+        }
+
+        const testLibrary = new TestLibrary();
+
+        function addResult(title, content) {
+            const resultsDiv = document.getElementById('test-results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result';
+            resultDiv.innerHTML = `
+                <h3>${title}</h3>
+                ${content}
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function updateStatus() {
+            const statusDiv = document.getElementById('current-status');
+            const currentUser = testLibrary.currentUser;
+            
+            statusDiv.innerHTML = `
+                <div class="user-info">
+                    <strong>當前使用者：</strong>${currentUser ? `${currentUser.realName} (${currentUser.username}) - ${currentUser.role}` : '未登入'}
+                    ${currentUser && currentUser.username === testLibrary.adminUsername ? '<span style="color: #28a745;"> [管理員]</span>' : ''}
+                </div>
+                <div class="user-info">
+                    <strong>當前登入模式：</strong>${testLibrary.currentLoginMode === 'quick' ? '快速登入' : '完整登入'}
+                </div>
+                <div class="user-info">
+                    <strong>系統使用者數：</strong>${testLibrary.users.length} 位
+                </div>
+            `;
+        }
+
+        function demoQuickLogin() {
+            const username = document.getElementById('demo-quick-username').value.trim();
+            const result = testLibrary.quickLogin(username);
+            
+            addResult('快速登入', `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>登入詳情：</strong><br>
+                        • 使用者：${result.user.realName} (${result.user.username})<br>
+                        • 角色：${result.user.role}<br>
+                        • 電話：${result.user.phoneNumber}<br>
+                        • 登入模式：快速登入
+                    ` : ''}
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function demoFullLogin() {
+            const username = document.getElementById('demo-username').value.trim();
+            const realName = document.getElementById('demo-realname').value.trim();
+            const phoneNumber = document.getElementById('demo-phone').value.trim();
+            const role = document.getElementById('demo-role').value;
+
+            const result = testLibrary.fullLogin(username, realName, phoneNumber, role);
+            
+            addResult('完整登入', `
+                <div class="user-info">
+                    <strong>結果：</strong>${result.success ? '成功' : '失敗'}<br>
+                    <strong>訊息：</strong>${result.message}<br>
+                    ${result.success ? `
+                        <strong>登入詳情：</strong><br>
+                        • 使用者：${result.user.realName} (${result.user.username})<br>
+                        • 角色：${result.user.role}<br>
+                        • 電話：${result.user.phoneNumber}<br>
+                        • 登入模式：完整登入<br>
+                        • 使用者類型：<span class="status-badge ${result.isNewUser ? 'new' : 'returning'}">${result.isNewUser ? '新使用者' : '老使用者'}</span>
+                    ` : ''}
+                </div>
+            `);
+            
+            updateStatus();
+        }
+
+        function demoSwitchToQuick() {
+            testLibrary.switchToQuickLogin();
+            addResult('模式切換', '已切換到快速登入模式');
+        }
+
+        function demoSwitchToFull() {
+            testLibrary.switchToFullLogin();
+            addResult('模式切換', '已切換到完整登入模式');
+        }
+
+        function createTestUsers() {
+            const result = testLibrary.createTestUsers();
+            addResult('創建測試使用者', result);
+            updateStatus();
+        }
+
+        function showTestUsers() {
+            const usersHtml = testLibrary.users.map(user => `
+                <div class="user-info">
+                    <strong>${user.realName}</strong> (${user.username})<br>
+                    角色：${user.role}<br>
+                    電話：${user.phoneNumber}<br>
+                    最後登入：${new Date(user.lastLogin).toLocaleString()}
+                </div>
+            `).join('');
+
+            addResult('測試使用者列表', usersHtml || '<p>沒有測試使用者</p>');
+        }
+
+        function clearTestUsers() {
+            testLibrary.users = [];
+            addResult('清除測試使用者', '所有測試使用者已清除');
+            updateStatus();
+        }
+
+        function testNewUser() {
+            // 重置表單
+            document.getElementById('demo-username').value = 'newuser';
+            document.getElementById('demo-realname').value = '新使用者';
+            document.getElementById('demo-phone').value = '0912345678';
+            document.getElementById('demo-role').value = 'student';
+            
+            // 切換到完整登入模式
+            testLibrary.switchToFullLogin();
+            
+            addResult('測試：新使用者第一次登入', `
+                <div class="user-info">
+                    <strong>測試場景：</strong>新使用者第一次登入<br>
+                    <strong>預期行為：</strong><br>
+                    • 必須填寫完整資料<br>
+                    • 系統創建新使用者記錄<br>
+                    • 顯示歡迎訊息
+                </div>
+            `);
+        }
+
+        function testReturningUser() {
+            // 設定已存在的使用者
+            document.getElementById('demo-quick-username').value = 'student1';
+            
+            // 切換到快速登入模式
+            testLibrary.switchToQuickLogin();
+            
+            addResult('測試：老使用者快速登入', `
+                <div class="user-info">
+                    <strong>測試場景：</strong>老使用者快速登入<br>
+                    <strong>預期行為：</strong><br>
+                    • 只需要輸入使用者名稱<br>
+                    • 系統自動識別身份<br>
+                    • 顯示歡迎回來訊息
+                </div>
+            `);
+        }
+
+        function testSmartDetection() {
+            // 重置表單
+            document.getElementById('demo-username').value = '';
+            document.getElementById('demo-realname').value = '';
+            document.getElementById('demo-phone').value = '';
+            testLibrary.switchToFullLogin();
+            
+            addResult('測試：智能檢測', `
+                <div class="user-info">
+                    <strong>測試場景：</strong>智能檢測使用者是否存在<br>
+                    <strong>測試方法：</strong><br>
+                    1. 在完整登入模式輸入 "student1"<br>
+                    2. 觀察是否出現 "已註冊？快速登入" 按鈕<br>
+                    3. 輸入 "newuser" 觀察按鈕消失
+                </div>
+            `);
+        }
+
+        function testModeSwitch() {
+            addResult('測試：模式切換', `
+                <div class="user-info">
+                    <strong>測試場景：</strong>手動切換登入模式<br>
+                    <strong>測試方法：</strong><br>
+                    1. 點擊 "已註冊？快速登入" 切換到快速模式<br>
+                    2. 點擊 "第一次使用？" 切換到完整模式<br>
+                    3. 觀察使用者名稱是否正確複製
+                </div>
+            `);
+        }
+
+        // 初始化事件監聽器
+        window.onload = function() {
+            // 使用者名稱輸入檢查
+            document.getElementById('demo-username').addEventListener('input', (e) => {
+                const username = e.target.value.trim();
+                testLibrary.checkLoginMode(username);
+            });
+
+            addResult('系統初始化', '智能登入測試系統已準備就緒');
+            updateStatus();
+        };
+    </script>
+</body>
+</html>

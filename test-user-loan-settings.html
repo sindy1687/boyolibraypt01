@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>使用者借閱時間設定測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+        .user-info { background: #f0f8ff; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .loan-info { background: #f9f9f9; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .result { margin: 10px 0; padding: 10px; background: #e7f3ff; border-radius: 4px; }
+        .setting-item { background: #fff3cd; padding: 8px; margin: 5px 0; border-radius: 4px; border-left: 4px solid #ffc107; }
+    </style>
+</head>
+<body>
+    <h1>使用者借閱時間設定測試</h1>
+    
+    <div class="test-section">
+        <h2>管理員設定使用者借閱時間</h2>
+        <button class="btn btn-primary" onclick="testAddUserLoanSetting()">新增使用者借閱設定</button>
+        <button class="btn btn-secondary" onclick="testEditUserLoanSetting()">編輯使用者借閱設定</button>
+        <button class="btn btn-secondary" onclick="testDeleteUserLoanSetting()">刪除使用者借閱設定</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試不同使用者借閱書籍</h2>
+        <button class="btn btn-success" onclick="testBorrowWithUserSetting()">測試有特殊設定的使用者借閱</button>
+        <button class="btn btn-success" onclick="testBorrowWithoutUserSetting()">測試無特殊設定的使用者借閱</button>
+    </div>
+
+    <div class="test-section">
+        <h2>測試結果</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <script>
+        // 模擬圖書館系統
+        class TestLibrary {
+            constructor() {
+                this.settings = {
+                    loanDays: 14, // 預設借閱天數
+                    userLoanSettings: [] // 使用者借閱時間設定
+                };
+                this.borrowedBooks = [];
+            }
+
+            // 獲取使用者的借閱時間設定
+            getUserLoanSetting(username) {
+                if (!username || !this.settings.userLoanSettings) return null;
+                return this.settings.userLoanSettings.find(setting => setting.username === username);
+            }
+
+            // 新增使用者借閱設定
+            addUserLoanSetting(username, days, reason) {
+                const existingSetting = this.getUserLoanSetting(username);
+                if (existingSetting) {
+                    return '該使用者已有借閱時間設定';
+                }
+
+                const setting = {
+                    username,
+                    days,
+                    reason,
+                    createdAt: new Date().toISOString()
+                };
+
+                this.settings.userLoanSettings.push(setting);
+                return `成功為使用者 ${username} 設定借閱時間 ${days} 天`;
+            }
+
+            // 編輯使用者借閱設定
+            editUserLoanSetting(username, days, reason) {
+                const index = this.settings.userLoanSettings.findIndex(setting => setting.username === username);
+                if (index === -1) {
+                    return '找不到該使用者的借閱時間設定';
+                }
+
+                this.settings.userLoanSettings[index] = {
+                    username,
+                    days,
+                    reason,
+                    createdAt: this.settings.userLoanSettings[index].createdAt
+                };
+
+                return `成功更新使用者 ${username} 的借閱時間為 ${days} 天`;
+            }
+
+            // 刪除使用者借閱設定
+            deleteUserLoanSetting(username) {
+                const index = this.settings.userLoanSettings.findIndex(setting => setting.username === username);
+                if (index === -1) {
+                    return '找不到該使用者的借閱時間設定';
+                }
+
+                this.settings.userLoanSettings.splice(index, 1);
+                return `成功刪除使用者 ${username} 的借閱時間設定`;
+            }
+
+            // 模擬借閱書籍
+            borrowBook(username) {
+                const borrowDate = new Date();
+                
+                // 檢查使用者是否有個人化的借閱時間設定
+                const userLoanSetting = this.getUserLoanSetting(username);
+                const loanDays = userLoanSetting ? userLoanSetting.days : this.settings.loanDays;
+                const dueDate = new Date(borrowDate.getTime() + loanDays * 24 * 60 * 60 * 1000);
+
+                const borrowRecord = {
+                    id: Date.now().toString(),
+                    username,
+                    borrowDate: borrowDate.toISOString(),
+                    dueDate: dueDate.toISOString(),
+                    loanDays,
+                    hasCustomSetting: !!userLoanSetting
+                };
+
+                this.borrowedBooks.push(borrowRecord);
+                
+                return {
+                    username,
+                    loanDays,
+                    borrowDate: borrowDate.toLocaleDateString(),
+                    dueDate: dueDate.toLocaleDateString(),
+                    hasCustomSetting: userLoanSetting ? `是 (${userLoanSetting.days}天)` : '否'
+                };
+            }
+
+            // 獲取所有使用者借閱設定
+            getAllUserLoanSettings() {
+                return this.settings.userLoanSettings;
+            }
+        }
+
+        const testLibrary = new TestLibrary();
+
+        function addResult(title, content) {
+            const resultsDiv = document.getElementById('test-results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result';
+            resultDiv.innerHTML = `
+                <h3>${title}</h3>
+                ${content}
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function testAddUserLoanSetting() {
+            const result1 = testLibrary.addUserLoanSetting('student1', 21, '優等生特殊權限');
+            const result2 = testLibrary.addUserLoanSetting('teacher1', 30, '教師專用');
+            const result3 = testLibrary.addUserLoanSetting('student1', 7, '重複設定測試'); // 應該失敗
+
+            const settings = testLibrary.getAllUserLoanSettings();
+            const settingsHtml = settings.map(setting => `
+                <div class="setting-item">
+                    <strong>${setting.username}</strong>: ${setting.days}天 - ${setting.reason}
+                </div>
+            `).join('');
+
+            addResult('新增使用者借閱設定', `
+                <div class="user-info">
+                    <div>結果1: ${result1}</div>
+                    <div>結果2: ${result2}</div>
+                    <div>結果3: ${result3}</div>
+                </div>
+                <h4>目前設定:</h4>
+                ${settingsHtml || '<p>無設定</p>'}
+            `);
+        }
+
+        function testEditUserLoanSetting() {
+            const result1 = testLibrary.editUserLoanSetting('student1', 28, '優等生延長權限');
+            const result2 = testLibrary.editUserLoanSetting('nonexistent', 14, '不存在的使用者'); // 應該失敗
+
+            const settings = testLibrary.getAllUserLoanSettings();
+            const settingsHtml = settings.map(setting => `
+                <div class="setting-item">
+                    <strong>${setting.username}</strong>: ${setting.days}天 - ${setting.reason}
+                </div>
+            `).join('');
+
+            addResult('編輯使用者借閱設定', `
+                <div class="user-info">
+                    <div>結果1: ${result1}</div>
+                    <div>結果2: ${result2}</div>
+                </div>
+                <h4>更新後設定:</h4>
+                ${settingsHtml || '<p>無設定</p>'}
+            `);
+        }
+
+        function testDeleteUserLoanSetting() {
+            const result1 = testLibrary.deleteUserLoanSetting('teacher1');
+            const result2 = testLibrary.deleteUserLoanSetting('nonexistent', '不存在的使用者'); // 應該失敗
+
+            const settings = testLibrary.getAllUserLoanSettings();
+            const settingsHtml = settings.map(setting => `
+                <div class="setting-item">
+                    <strong>${setting.username}</strong>: ${setting.days}天 - ${setting.reason}
+                </div>
+            `).join('');
+
+            addResult('刪除使用者借閱設定', `
+                <div class="user-info">
+                    <div>結果1: ${result1}</div>
+                    <div>結果2: ${result2}</div>
+                </div>
+                <h4>剩餘設定:</h4>
+                ${settingsHtml || '<p>無設定</p>'}
+            `);
+        }
+
+        function testBorrowWithUserSetting() {
+            // 先確保有設定
+            testLibrary.addUserLoanSetting('student1', 21, '優等生特殊權限');
+            
+            const borrowResult = testLibrary.borrowBook('student1');
+            
+            addResult('有特殊設定的使用者借閱', `
+                <div class="loan-info">
+                    <div><strong>使用者:</strong> ${borrowResult.username}</div>
+                    <div><strong>借閱天數:</strong> ${borrowResult.loanDays} 天</div>
+                    <div><strong>借閱日期:</strong> ${borrowResult.borrowDate}</div>
+                    <div><strong>應還日期:</strong> ${borrowResult.dueDate}</div>
+                    <div><strong>使用特殊設定:</strong> ${borrowResult.hasCustomSetting}</div>
+                </div>
+            `);
+        }
+
+        function testBorrowWithoutUserSetting() {
+            const borrowResult = testLibrary.borrowBook('student2'); // 無特殊設定
+            
+            addResult('無特殊設定的使用者借閱', `
+                <div class="loan-info">
+                    <div><strong>使用者:</strong> ${borrowResult.username}</div>
+                    <div><strong>借閱天數:</strong> ${borrowResult.loanDays} 天 (預設值)</div>
+                    <div><strong>借閱日期:</strong> ${borrowResult.borrowDate}</div>
+                    <div><strong>應還日期:</strong> ${borrowResult.dueDate}</div>
+                    <div><strong>使用特殊設定:</strong> ${borrowResult.hasCustomSetting}</div>
+                </div>
+            `);
+        }
+    </script>
+</body>
+</html>
