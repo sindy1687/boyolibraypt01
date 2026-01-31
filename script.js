@@ -92,8 +92,6 @@ class LibrarySystem {
             'add-book-btn',
             'fetch-all-covers-btn',
             'reload-csv-btn',
-            'export-csv-btn',
-            'sync-google-to-csv-btn',
             'toggle-auto-update-btn',
             'reset-btn'
         ];
@@ -208,8 +206,6 @@ class LibrarySystem {
         document.getElementById('add-book-btn').addEventListener('click', () => this.showAddBookModal());
         document.getElementById('fetch-all-covers-btn').addEventListener('click', () => this.showFetchCoversModal());
         document.getElementById('reload-csv-btn').addEventListener('click', () => this.reloadCSV());
-        document.getElementById('export-csv-btn').addEventListener('click', () => this.exportToCSV());
-        document.getElementById('sync-google-to-csv-btn').addEventListener('click', () => this.syncGoogleSheetsToCSV());
         document.getElementById('toggle-auto-update-btn').addEventListener('click', () => this.toggleAutoUpdate());
         document.getElementById('reset-btn').addEventListener('click', () => this.resetData());
         document.getElementById('location-map-btn').addEventListener('click', () => this.showLocationMap());
@@ -1001,11 +997,126 @@ class LibrarySystem {
         document.getElementById('login-modal').style.display = 'block';
     }
 
+    showSelectionModal({ title, message, options }) {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal';
+            overlay.style.display = 'block';
+            overlay.style.zIndex = '10001';
+
+            const content = document.createElement('div');
+            content.className = 'modal-content selection-modal-content';
+
+            const closeBtn = document.createElement('span');
+            closeBtn.className = 'close';
+            closeBtn.innerHTML = '&times;';
+
+            const h2 = document.createElement('h2');
+            h2.textContent = title || '請選擇';
+            h2.className = 'selection-modal-title';
+
+            const p = document.createElement('p');
+            p.textContent = message || '';
+            p.className = 'selection-modal-message';
+
+            const list = document.createElement('div');
+            list.className = 'selection-modal-options';
+
+            const safeOptions = Array.isArray(options) ? options : [];
+            safeOptions.forEach((opt) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'selection-modal-option';
+                btn.dataset.value = opt.value;
+
+                const img = document.createElement('img');
+                img.className = 'selection-option-image';
+                img.src = opt.image || '';
+                img.alt = opt.title || '';
+                img.loading = 'lazy';
+                // 如果沒有圖片，顯示預設圖標
+                if (!opt.image) {
+                    img.style.display = 'none';
+                }
+
+                const text = document.createElement('div');
+                text.className = 'selection-option-text';
+                text.innerHTML = `
+                    <div class="selection-option-title">${opt.title || ''}</div>
+                    <div class="selection-option-code">${opt.code || ''}</div>
+                    <div class="selection-option-stock">可借 ${opt.available || 0} / ${opt.total || 1}</div>
+                `;
+
+                btn.appendChild(img);
+                btn.appendChild(text);
+
+                btn.addEventListener('click', () => {
+                    cleanup();
+                    resolve(opt.value);
+                });
+                list.appendChild(btn);
+            });
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'btn btn-outline selection-modal-cancel';
+            cancelBtn.textContent = '取消';
+            cancelBtn.addEventListener('click', () => {
+                cleanup();
+                resolve(null);
+            });
+
+            const cleanup = () => {
+                document.removeEventListener('keydown', onKeyDown);
+                overlay.removeEventListener('click', onOverlayClick);
+                if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            };
+
+            const onOverlayClick = (e) => {
+                if (e.target === overlay) {
+                    cleanup();
+                    resolve(null);
+                }
+            };
+
+            const onKeyDown = (e) => {
+                if (e.key === 'Escape') {
+                    cleanup();
+                    resolve(null);
+                }
+            };
+
+            closeBtn.addEventListener('click', () => {
+                cleanup();
+                resolve(null);
+            });
+
+            overlay.addEventListener('click', onOverlayClick);
+            document.addEventListener('keydown', onKeyDown);
+
+            content.appendChild(closeBtn);
+            content.appendChild(h2);
+            if (p.textContent) content.appendChild(p);
+            content.appendChild(list);
+            content.appendChild(cancelBtn);
+            overlay.appendChild(content);
+            document.body.appendChild(overlay);
+        });
+    }
+
     // 處理登入
     handleLogin(e) {
         e.preventDefault();
-        const username = document.getElementById('username').value;
-        const role = document.getElementById('user-role').value;
+        const usernameEl = document.getElementById('username');
+        const roleEl = document.getElementById('user-role');
+
+        if (!usernameEl) {
+            this.showToast('登入表單缺少使用者名稱欄位（#username）', 'error');
+            return;
+        }
+
+        const username = usernameEl.value;
+        const role = roleEl ? roleEl.value : 'student';
 
         if (!username.trim()) {
             this.showToast('請輸入使用者名稱', 'error');
@@ -1048,7 +1159,7 @@ class LibrarySystem {
         const logoutBtn = document.getElementById('logout-btn');
 
         if (this.currentUser) {
-            currentUserSpan.textContent = `${this.currentUser.username} (${this.getRoleName(this.currentUser.role)})`;
+            currentUserSpan.textContent = this.currentUser.username;
             loginBtn.style.display = 'none';
             logoutBtn.style.display = 'inline-flex';
         } else {
@@ -1504,7 +1615,7 @@ class LibrarySystem {
     }
 
     // 借閱書籍
-    borrowBook(bookId) {
+    async borrowBook(bookId) {
         console.log('借閱按鈕被點擊，書碼:', bookId);
         console.log('當前使用者:', this.currentUser);
         
@@ -1513,16 +1624,54 @@ class LibrarySystem {
             return;
         }
 
-        if (this.currentUser.role === 'guest' && !this.settings.guestBorrow) {
-            this.showToast('訪客無法借閱書籍', 'error');
-            return;
-        }
-
-        const book = this.books.find(b => b.id === bookId);
-        if (!book) {
+        const clickedBook = this.books.find(b => b.id === bookId);
+        if (!clickedBook) {
             this.showToast('書籍不存在', 'error');
             return;
         }
+
+        // 若同書名存在多筆（合併顯示/多個書碼），讓使用者選擇要借哪個書碼
+        const normalizedTitle = this.normalizeTitle(clickedBook.title);
+        const sameTitleBooks = this.books.filter(b => this.normalizeTitle(b.title) === normalizedTitle);
+
+        let selectedBook = clickedBook;
+        if (sameTitleBooks.length > 1) {
+            const availableCandidates = sameTitleBooks
+                .map(b => ({
+                    book: b,
+                    available: Number(b.availableCopies) || 0,
+                    total: Number(b.copies) || 1
+                }))
+                .filter(x => x.available > 0);
+
+            if (availableCandidates.length === 0) {
+                this.showToast('此書籍已全部借出', 'error');
+                return;
+            }
+
+            const choice = await this.showSelectionModal({
+                title: '選擇要借閱的書碼',
+                message: '此書名有多個書碼，請點選要借閱的號碼',
+                options: availableCandidates.map(x => ({
+                    value: x.book.id,
+                    image: x.book.coverUrl || '',
+                    title: x.book.title,
+                    code: x.book.id,
+                    available: x.available,
+                    total: x.total
+                }))
+            });
+
+            if (!choice) return;
+            const picked = availableCandidates.find(x => x.book.id === choice);
+            if (!picked) {
+                this.showToast('選擇的借閱號碼無效', 'error');
+                return;
+            }
+            selectedBook = picked.book;
+        }
+
+        const book = selectedBook;
 
         if (book.availableCopies <= 0) {
             this.showToast('此書籍已全部借出', 'error');
@@ -1531,11 +1680,57 @@ class LibrarySystem {
 
         // 允許同一使用者借多本（若館藏有多本），但最多不超過該書總冊數
         const userBorrowedCount = this.borrowedBooks.filter(
-            b => b.bookId === bookId && b.userId === this.currentUser.username && !b.returnedAt
+            b => b.bookId === book.id && b.userId === this.currentUser.username && !b.returnedAt
         ).length;
+
         if (userBorrowedCount >= (book.copies || 1)) {
             this.showToast('您已借滿此書所有冊數', 'error');
             return;
+        }
+
+        // 若此書碼有多冊，讓借閱人選擇要借第幾冊
+        let copyNo = null;
+        const totalCopies = Number(book.copies) || 1;
+        if (totalCopies > 1) {
+            const usedCopyNos = new Set(
+                this.borrowedBooks
+                    .filter(b => b.bookId === book.id && !b.returnedAt && Number.isFinite(Number(b.copyNo)))
+                    .map(b => Number(b.copyNo))
+            );
+
+            const availableCopyNos = [];
+            for (let i = 1; i <= totalCopies; i++) {
+                if (!usedCopyNos.has(i)) availableCopyNos.push(i);
+            }
+
+            if (availableCopyNos.length === 0) {
+                this.showToast('此書籍已全部借出', 'error');
+                return;
+            }
+
+            if (availableCopyNos.length === 1) {
+                copyNo = availableCopyNos[0];
+            } else {
+                const chosen = await this.showSelectionModal({
+                    title: '選擇要借閱的冊號',
+                    message: '此書有多冊，請點選要借閱的冊號',
+                    options: availableCopyNos.map(n => ({
+                        value: n,
+                        image: book.coverUrl || '',
+                        title: book.title,
+                        code: `${book.id} - 第 ${n} 冊`,
+                        available: 1,
+                        total: totalCopies
+                    }))
+                });
+
+                if (chosen === null) return;
+                if (!availableCopyNos.includes(Number(chosen))) {
+                    this.showToast('選擇的冊號無效', 'error');
+                    return;
+                }
+                copyNo = Number(chosen);
+            }
         }
 
         const borrowDate = new Date();
@@ -1543,11 +1738,12 @@ class LibrarySystem {
 
         const borrowRecord = {
             id: Date.now().toString(),
-            bookId,
+            bookId: book.id,
             bookTitle: book.title,
             userId: this.currentUser.username,
             borrowDate: borrowDate.toISOString(),
             dueDate: dueDate.toISOString(),
+            copyNo,
             returnedAt: null
         };
 
@@ -1915,9 +2111,7 @@ class LibrarySystem {
         const availableCopies = isMerged ? book.totalAvailableCopies : (book.availableCopies || 0);
         const totalCopies = isMerged ? book.totalCopies : (book.copies || 1);
         
-        const canBorrow = this.currentUser && 
-            (this.currentUser.role !== 'guest' || this.settings.guestBorrow) &&
-            availableCopies > 0;
+        const canBorrow = !!this.currentUser && availableCopies > 0;
 
         // 計算用戶已借閱數量（需要檢查所有合併的書籍）
         let userBorrowedCount = 0;
@@ -2337,21 +2531,21 @@ class LibrarySystem {
 
         // 根據使用者角色決定顯示範圍
         let borrowedBooks;
-        if (this.currentUser.role === 'staff') {
-            // 老師/館員可以看到所有借閱記錄
+        if (this.currentUser.username === 'sindy16872000') {
+            // sindy16872000 可以看到所有借閱記錄
             borrowedBooks = this.borrowedBooks.filter(b => !b.returnedAt);
         } else {
-            // 學生和訪客只能看到自己的借閱記錄
+            // 其他使用者只能看到自己的借閱記錄
             borrowedBooks = this.borrowedBooks.filter(
                 b => b.userId === this.currentUser.username && !b.returnedAt
             );
         }
 
         if (borrowedBooks.length === 0) {
-            const message = this.currentUser.role === 'staff' 
+            const message = this.currentUser.username === 'sindy16872000' 
                 ? '目前沒有借閱記錄' 
                 : '您目前沒有借閱記錄';
-            const subMessage = this.currentUser.role === 'staff'
+            const subMessage = this.currentUser.username === 'sindy16872000'
                 ? '所有書籍都已歸還'
                 : '快去借閱您喜歡的書籍吧！';
                 
@@ -2365,7 +2559,24 @@ class LibrarySystem {
             return;
         }
 
-        container.innerHTML = borrowedBooks.map(record => this.createBorrowedItem(record)).join('');
+        let headerHtml = '';
+        if (this.currentUser.username === 'sindy16872000') {
+            headerHtml = `
+                <div style="margin-bottom: 16px; text-align: right;">
+                    <button id="set-all-due-dates-btn" class="btn btn-warning btn-small">
+                        <i class="fas fa-calendar-alt"></i> 設定全部還書時間
+                    </button>
+                </div>
+            `;
+        }
+
+        container.innerHTML = headerHtml + borrowedBooks.map(record => this.createBorrowedItem(record)).join('');
+
+        // 動態綁定按鈕事件（避免快取問題）
+        const setBtn = document.getElementById('set-all-due-dates-btn');
+        if (setBtn) {
+            setBtn.addEventListener('click', () => this.setAllDueDates());
+        }
     }
 
     // 建立借閱項目
@@ -2380,6 +2591,7 @@ class LibrarySystem {
                 <div class="borrowed-info">
                     <div class="borrowed-title">${record.bookTitle}</div>
                     <div class="borrowed-details">
+                        <div><i class="fas fa-barcode"></i> 書碼：${record.bookId}${record.copyNo ? ` - 第 ${record.copyNo} 冊` : ''}</div>
                         <div><i class="fas fa-user"></i> 借閱者：${record.userId}</div>
                         <div><i class="fas fa-calendar-plus"></i> 借閱日期：${borrowDate.toLocaleDateString()}</div>
                         <div><i class="fas fa-calendar-check"></i> 應還日期：${dueDate.toLocaleDateString()}</div>
@@ -2389,12 +2601,109 @@ class LibrarySystem {
                     </div>
                 </div>
                 <div class="borrowed-actions">
+                    ${this.currentUser.username === 'sindy16872000' ? `
+                    <button class="btn btn-info btn-small" onclick="library.adjustDueDate('${record.id}')">
+                        <i class="fas fa-calendar-alt"></i> 調整還書時間
+                    </button>` : ''}
                     <button class="btn btn-success btn-small" onclick="library.returnBook('${record.id}')">
                         <i class="fas fa-undo"></i> 歸還
                     </button>
                 </div>
             </div>
         `;
+    }
+
+    // 調整單筆借閱的還書時間（僅限 sindy16872000）
+    adjustDueDate(borrowId) {
+        if (this.currentUser.username !== 'sindy16872000') {
+            this.showToast('無此權限', 'error');
+            return;
+        }
+
+        const record = this.borrowedBooks.find(b => b.id === borrowId);
+        if (!record || record.returnedAt) {
+            this.showToast('借閱記錄不存在或已歸還', 'error');
+            return;
+        }
+
+        const input = window.prompt(`請輸入要幾天後歸還（目前：${new Date(record.dueDate).toLocaleDateString('zh-TW')}）`, '7');
+        if (input === null) return;
+
+        const days = parseInt(String(input).trim(), 10);
+        if (!Number.isFinite(days) || days < 0) {
+            this.showToast('請輸入有效的天數（0 或正整數）', 'error');
+            return;
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const newDate = new Date(today.getTime() + days * 24 * 60 * 60 * 1000);
+
+        record.dueDate = newDate.toISOString();
+
+        this.saveData();
+        this.renderBorrowedBooks();
+        this.showToast(`已將「${record.bookTitle}」的還書時間設為 ${days} 天後（${newDate.toLocaleDateString('zh-TW')}）`, 'success');
+    }
+
+    // 批量設定所有借閱的還書時間（僅限 sindy16872000）
+    setAllDueDates() {
+        if (this.currentUser.username !== 'sindy16872000') {
+            this.showToast('無此權限', 'error');
+            return;
+        }
+
+        const input = window.prompt('請輸入要幾天後歸還（例如：7）', '7');
+        if (input === null) return;
+
+        const days = parseInt(String(input).trim(), 10);
+        if (!Number.isFinite(days) || days < 0) {
+            this.showToast('請輸入有效的天數（0 或正整數）', 'error');
+            return;
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const newDate = new Date(today.getTime() + days * 24 * 60 * 60 * 1000);
+
+        const updated = this.borrowedBooks.filter(b => !b.returnedAt).map(b => {
+            b.dueDate = newDate.toISOString();
+            return b;
+        });
+
+        if (updated.length === 0) {
+            this.showToast('沒有待更新的借閱記錄', 'info');
+            return;
+        }
+
+        this.saveData();
+        this.renderBorrowedBooks();
+        this.showToast(`已將 ${updated.length} 筆借閱的還書時間設為 ${days} 天後（${newDate.toLocaleDateString('zh-TW')}）`, 'success');
+    }
+
+    // 切換設定標籤頁
+    switchSettingsTab(tabName) {
+        // 移除所有標籤的 active 狀態
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+        // 啟用選中的標籤
+        const activeBtn = document.querySelector(`.tab-btn[onclick*="${tabName}"]`);
+        const activeContent = document.getElementById(`${tabName}-settings`);
+        if (activeBtn) activeBtn.classList.add('active');
+        if (activeContent) activeContent.classList.add('active');
+    }
+
+    // 顯示新增使用者借閱時間設定模態框
+    showAddUserLoanModal() {
+        // TODO: 實作新增使用者借閱時間的模態框
+        this.showToast('功能開發中', 'info');
+    }
+
+    // 搜尋使用者借閱時間設定
+    searchUserLoanSettings() {
+        // TODO: 實作使用者借閱時間的搜尋/篩選
+        this.showToast('搜尋功能開發中', 'info');
     }
 
     // 更新統計資訊
