@@ -3087,6 +3087,7 @@ class LibrarySystem {
             const coverEl = document.getElementById('book-cover-url');
             const yearEl = document.getElementById('book-year');
             const copiesEl = document.getElementById('book-copies');
+            const typeEl = document.getElementById('book-type');
 
             if (!idEl || !titleEl || !yearEl || !copiesEl) {
                 this.showToast('新增失敗：表單欄位不存在，請重新整理頁面', 'error');
@@ -3099,6 +3100,7 @@ class LibrarySystem {
             const coverUrl = (coverEl?.value || '').trim();
             const year = parseInt(yearEl.value) || this.settings.defaultYear;
             const copies = parseInt(copiesEl.value) || this.settings.defaultCopies;
+            const type = (typeEl?.value || '').trim();
 
             // 驗證書碼格式（支援全形和半形字符）
             if (!/^[ABC]\d+$/.test(id)) {
@@ -3127,6 +3129,7 @@ class LibrarySystem {
                 year,
                 copies,
                 availableCopies: copies,
+                type,
                 isNew: true,
                 addedAt: Date.now()
             };
@@ -3926,6 +3929,7 @@ class LibrarySystem {
                     <div class="book-header">
                         <span class="book-id">${bookIdsDisplay}</span>
                         <span class="book-genre">${book.genre}</span>
+                        ${book.type ? `<span class="book-type">${book.type}</span>` : ''}
                     </div>
                     <div class="book-title">${book.title}</div>
                     ${book.author ? `<div class="book-info-item"><i class=\"fas fa-pen-nib\"></i><span>${book.author}</span></div>` : ''}
@@ -3991,6 +3995,7 @@ class LibrarySystem {
         const coverInput = document.getElementById('edit-book-cover-url');
         const yearInput = document.getElementById('edit-book-year');
         const copiesInput = document.getElementById('edit-book-copies');
+        const typeInput = document.getElementById('edit-book-type');
 
         if (originalIdInput) originalIdInput.value = book.id;
         if (idInput) idInput.value = book.id;
@@ -3999,6 +4004,7 @@ class LibrarySystem {
         if (coverInput) coverInput.value = book.coverUrl || '';
         if (yearInput) yearInput.value = book.year || this.settings.defaultYear;
         if (copiesInput) copiesInput.value = book.copies || 1;
+        if (typeInput) typeInput.value = book.type || '';
 
         if (modal) modal.style.display = 'block';
 
@@ -4076,6 +4082,7 @@ class LibrarySystem {
         const coverUrl = (document.getElementById('edit-book-cover-url')?.value || '').trim();
         const year = parseInt(document.getElementById('edit-book-year')?.value) || this.settings.defaultYear;
         const newCopies = parseInt(document.getElementById('edit-book-copies')?.value) || 1;
+        const type = (document.getElementById('edit-book-type')?.value || '').trim();
 
         if (!originalId) {
             this.showToast('編輯失敗：缺少書碼', 'error');
@@ -4104,6 +4111,7 @@ class LibrarySystem {
         book.year = year;
         book.copies = newCopies;
         book.availableCopies = newCopies - borrowedCount;
+        book.type = type;
 
         if (Array.isArray(book.bookIds) && !book.bookIds.includes(book.id)) {
             book.bookIds.unshift(book.id);

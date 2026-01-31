@@ -574,6 +574,21 @@ body {
     color: white;
 }
 
+/* 書籍類型標籤樣式 */
+.book-type {
+    padding: 4px 10px;
+    border-radius: 15px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background: #3498db;
+    color: white;
+    margin-left: 8px;
+}
+
+.book-type:empty {
+    display: none;
+}
+
 .book-actions {
     display: flex;
     gap: 10px;
