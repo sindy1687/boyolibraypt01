@@ -24,9 +24,6 @@ class LibrarySystem {
         };
         this.apiRequestQueue = [];
         this.apiRequestInProgress = false;
-        this.apiCache = new Map();
-        this.apiInFlight = new Map();
-        this.apiCacheTtlMs = 10 * 60 * 1000;
         
         // 搜尋狀態控制
         this.searchState = {
@@ -46,135 +43,12 @@ class LibrarySystem {
             defaultCopies: 1,
             defaultYear: 2024,
             autoUpdateInterval: 300000,
-            googleWebAppUrl: '',
-            userLoanSettings: [], // 使用者借閱時間設定: [{username, days, reason, createdAt}]
-            notifications: [], // 通知設定
-            staffApplications: [] // 身分審核相關資料結構
+            googleWebAppUrl: ''
         };
         this.updateTimer = null;
         this.lastUpdateTime = null;
         
         this.init();
-    }
-
-    getAvailableCopyIds(book) {
-        const allCopyIds = Array.isArray(book?.bookIds) && book.bookIds.length > 0
-            ? [...new Set(book.bookIds.map(id => String(id).trim()).filter(Boolean))]
-            : [book.id];
-
-        const activeRecords = this.borrowedBooks.filter(b => b.bookId === book.id && !b.returnedAt);
-        const usedCopyIds = new Set(
-            activeRecords
-                .map(r => (r.copyId || '').toString().trim())
-                .filter(Boolean)
-        );
-
-        let available = allCopyIds.filter(id => !usedCopyIds.has(id));
-
-        const unknownOccupyCount = activeRecords.filter(r => !r.copyId).length;
-        if (unknownOccupyCount > 0 && available.length > 0) {
-            available = available.slice(Math.min(unknownOccupyCount, available.length));
-        }
-
-        const availableCopies = parseInt(book?.availableCopies, 10);
-        if (Number.isFinite(availableCopies) && availableCopies >= 0 && available.length > availableCopies) {
-            available = available.slice(0, availableCopies);
-        }
-
-        return available;
-    }
-
-    showChooseCopyModal(book, availableCopyIds) {
-        const modal = document.getElementById('choose-copy-modal');
-        const info = document.getElementById('choose-copy-book-info');
-        const list = document.getElementById('choose-copy-list');
-        const selectedInput = document.getElementById('choose-copy-selected');
-        const cancelBtn = document.getElementById('choose-copy-cancel');
-        const confirmBtn = document.getElementById('choose-copy-confirm');
-
-        if (!modal || !info || !list || !selectedInput || !cancelBtn || !confirmBtn) {
-            // 若 UI 元素不存在，回退為不選擇
-            return Promise.resolve(null);
-        }
-
-        // 清空與初始化
-        selectedInput.value = '';
-        info.innerHTML = `
-            <div><strong>書名：</strong>${book?.title || ''}</div>
-            <div><strong>可借數量：</strong>${availableCopyIds.length}</div>
-        `;
-        list.innerHTML = availableCopyIds.map(id => {
-            const safe = String(id);
-            return `<button type="button" class="btn btn-secondary" data-copy-id="${safe}">${safe}</button>`;
-        }).join('');
-
-        // 一次性的事件處理
-        return new Promise(resolve => {
-            const cleanup = () => {
-                list.removeEventListener('click', onPick);
-                cancelBtn.removeEventListener('click', onCancel);
-                confirmBtn.removeEventListener('click', onConfirm);
-                modal.removeEventListener('closeCopyPicker', onCancel);
-            };
-
-            const close = () => {
-                modal.style.display = 'none';
-            };
-
-            const onPick = (e) => {
-                const btn = e.target.closest('[data-copy-id]');
-                if (!btn) return;
-                const id = btn.getAttribute('data-copy-id');
-                selectedInput.value = id;
-                // 樣式：標示選中
-                list.querySelectorAll('[data-copy-id]').forEach(b => b.classList.remove('btn-primary'));
-                list.querySelectorAll('[data-copy-id]').forEach(b => b.classList.add('btn-secondary'));
-                btn.classList.remove('btn-secondary');
-                btn.classList.add('btn-primary');
-            };
-
-            const onCancel = () => {
-                cleanup();
-                close();
-                resolve(null);
-            };
-
-            const onConfirm = () => {
-                const selected = (selectedInput.value || '').trim();
-                if (!selected || !availableCopyIds.includes(selected)) {
-                    this.showToast('請先選擇要借的書碼', 'warning');
-                    return;
-                }
-                cleanup();
-                close();
-                resolve(selected);
-            };
-
-            list.addEventListener('click', onPick);
-            cancelBtn.addEventListener('click', onCancel);
-            confirmBtn.addEventListener('click', onConfirm);
-
-            // 若使用者按 X 或點背景關閉 modal，setupModalListeners 只會把它隱藏
-            // 這裡用自訂事件讓外部可通知取消
-            modal.addEventListener('closeCopyPicker', onCancel);
-
-            modal.style.display = 'block';
-        });
-    }
-
-    async chooseCopyIdForBorrow(book) {
-        const availableCopyIds = this.getAvailableCopyIds(book);
-        if (availableCopyIds.length <= 0) return null;
-
-        console.log('chooseCopyIdForBorrow - availableCopyIds:', availableCopyIds, 'length:', availableCopyIds.length);
-
-        if (availableCopyIds.length === 1) {
-            console.log('只有 1 本可借，直接返回');
-            return availableCopyIds[0];
-        }
-
-        console.log('多本可借，彈出選書碼視窗');
-        return await this.showChooseCopyModal(book, availableCopyIds);
     }
 
     // 初始化系統
@@ -214,10 +88,6 @@ class LibrarySystem {
             'google-push-btn',
             'google-pull-btn',
             'settings-btn',
-            'staff-approval-btn',
-            'borrowers-list-btn',
-            'borrowers-sync-btn',
-            'delete-identity-btn',
             'import-btn',
             'add-book-btn',
             'fetch-all-covers-btn',
@@ -345,52 +215,14 @@ class LibrarySystem {
         document.getElementById('location-map-btn').addEventListener('click', () => this.showLocationMap());
 
         // 登入/登出
-        const loginBtn = document.getElementById('login-btn');
-        if (loginBtn) {
-            loginBtn.addEventListener('click', () => this.showLoginModal());
-        }
-        const logoutBtn = document.getElementById('logout-btn');
-        if (logoutBtn) {
-            logoutBtn.addEventListener('click', () => this.logout());
-        }
-
-        // 借閱者清單
-        const borrowersListBtn = document.getElementById('borrowers-list-btn');
-        if (borrowersListBtn) {
-            borrowersListBtn.addEventListener('click', () => this.showBorrowersListModal());
-        }
-
-        // 借閱者上傳到 Google Sheets
-        const borrowersSyncBtn = document.getElementById('borrowers-sync-btn');
-        if (borrowersSyncBtn) {
-            borrowersSyncBtn.addEventListener('click', () => this.syncBorrowersAndBorrowsToGoogleSheets());
-        }
-
-        // 身分審核管理
-        const staffApprovalBtn = document.getElementById('staff-approval-btn');
-        if (staffApprovalBtn) {
-            staffApprovalBtn.addEventListener('click', () => this.showStaffApprovalModal());
-        }
-
-        // 刪除身分管理
-        const deleteIdentityBtn = document.getElementById('delete-identity-btn');
-        if (deleteIdentityBtn) {
-            deleteIdentityBtn.addEventListener('click', () => this.showDeleteIdentityModal());
-        }
+        document.getElementById('login-btn').addEventListener('click', () => this.showLoginModal());
+        document.getElementById('logout-btn').addEventListener('click', () => this.logout());
 
         // 模態框
         this.setupModalListeners();
 
         // 表單提交
-        const loginForm = document.getElementById('login-form');
-        if (loginForm) {
-            loginForm.addEventListener('submit', (e) => this.handleSimpleLogin(e));
-        }
-
-        // 註冊流程已停用：僅支援輸入帳號登入
-        
-        // 使用者名稱輸入檢查（簡單登入模式不需要即時檢查）
-        
+        document.getElementById('login-form').addEventListener('submit', (e) => this.handleLogin(e));
         document.getElementById('add-book-form').addEventListener('submit', (e) => this.handleAddBook(e));
         const settingsForm = document.getElementById('settings-form');
         if (settingsForm) settingsForm.addEventListener('submit', (e) => this.handleSaveSettings(e));
@@ -402,47 +234,6 @@ class LibrarySystem {
         const fetchCoversForm = document.getElementById('fetch-covers-form');
         if (fetchCoversForm) {
             fetchCoversForm.addEventListener('submit', (e) => this.handleFetchCovers(e));
-        }
-
-        // 使用者借閱設定表單
-        const userLoanForm = document.getElementById('user-loan-form');
-        if (userLoanForm) {
-            userLoanForm.addEventListener('submit', (e) => this.handleUserLoanForm(e));
-        }
-
-        // 刪除使用者借閱設定按鈕
-        const deleteUserLoanBtn = document.getElementById('delete-user-loan-btn');
-        if (deleteUserLoanBtn) {
-            deleteUserLoanBtn.addEventListener('click', () => {
-                const editingIndex = document.getElementById('user-loan-editing-index').value;
-                if (editingIndex !== '') {
-                    this.deleteUserLoanSetting(parseInt(editingIndex));
-                }
-            });
-        }
-
-        // 修改應還日期表單
-        const editDueDateForm = document.getElementById('edit-due-date-form');
-        if (editDueDateForm) {
-            editDueDateForm.addEventListener('submit', (e) => this.handleEditDueDateForm(e));
-        }
-
-        // 逾期通知表單
-        const overdueNotificationForm = document.getElementById('overdue-notification-form');
-        if (overdueNotificationForm) {
-            overdueNotificationForm.addEventListener('submit', (e) => this.handleOverdueNotificationForm(e));
-        }
-
-        // 審核表單
-        const approvalForm = document.getElementById('approval-form');
-        if (approvalForm) {
-            approvalForm.addEventListener('submit', (e) => this.handleApprovalForm(e));
-        }
-
-        // 確認刪除表單
-        const confirmDeleteForm = document.getElementById('confirm-delete-form');
-        if (confirmDeleteForm) {
-            confirmDeleteForm.addEventListener('submit', (e) => this.handleConfirmDelete(e));
         }
 
         // 搜尋範圍選擇變更
@@ -579,18 +370,12 @@ class LibrarySystem {
         closes.forEach(close => {
             close.addEventListener('click', (e) => {
                 const modal = e.target.closest('.modal');
-                if (modal && modal.id === 'choose-copy-modal') {
-                    modal.dispatchEvent(new Event('closeCopyPicker'));
-                }
                 modal.style.display = 'none';
             });
         });
 
         window.addEventListener('click', (e) => {
             if (e.target.classList.contains('modal')) {
-                if (e.target && e.target.id === 'choose-copy-modal') {
-                    e.target.dispatchEvent(new Event('closeCopyPicker'));
-                }
                 e.target.style.display = 'none';
             }
         });
@@ -619,6 +404,44 @@ class LibrarySystem {
         if (!this.settings.googleWebAppUrl) {
             this.settings.googleWebAppUrl = this.defaultGoogleWebAppUrl;
             localStorage.setItem('lib_settings_v1', JSON.stringify(this.settings));
+        }
+    }
+
+    updateBorrowedToggleIcon() {
+        const icon = document.querySelector('#borrowed-toggle-btn i');
+        if (!icon) return;
+
+        const panel = document.querySelector('.borrowed-section');
+        if (!panel) return;
+
+        const isOpen = panel.classList.contains('open');
+        icon.className = isOpen ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
+    }
+
+    // 設定模態框事件
+    setupModalListeners() {
+        const modals = document.querySelectorAll('.modal');
+        const closes = document.querySelectorAll('.close');
+
+        closes.forEach(close => {
+            close.addEventListener('click', (e) => {
+                const modal = e.target.closest('.modal');
+                modal.style.display = 'none';
+            });
+        });
+
+        window.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal')) {
+                e.target.style.display = 'none';
+            }
+        });
+    }
+
+    // 顯示位置圖
+    showLocationMap() {
+        const modal = document.getElementById('location-map-modal');
+        if (modal) {
+            modal.style.display = 'block';
         }
     }
 
@@ -716,1558 +539,7 @@ class LibrarySystem {
         if (defaultCopies) defaultCopies.value = String(this.settings.defaultCopies ?? 1);
         if (defaultYear) defaultYear.value = String(this.settings.defaultYear ?? 2024);
 
-        // 初始化使用者借閱設定列表
-        this.renderUserLoanSettings();
-
         if (modal) modal.style.display = 'block';
-    }
-
-    // 切換設定標籤頁
-    switchSettingsTab(tabName) {
-        // 隱藏所有標籤頁內容
-        document.querySelectorAll('.tab-content').forEach(tab => {
-            tab.classList.remove('active');
-        });
-        
-        // 移除所有標籤按鈕的 active 狀態
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        
-        // 顯示選中的標籤頁
-        document.getElementById(tabName + '-settings').classList.add('active');
-        
-        // 啟用對應的標籤按鈕
-        event.target.classList.add('active');
-        
-        // 如果切換到使用者借閱設定標籤，重新渲染列表
-        if (tabName === 'user-loan') {
-            this.renderUserLoanSettings();
-        }
-    }
-
-    // 獲取使用者的借閱時間設定
-    getUserLoanSetting(username) {
-        if (!username || !this.settings.userLoanSettings) return null;
-        return this.settings.userLoanSettings.find(setting => setting.username === username);
-    }
-
-    // 渲染使用者借閱設定列表
-    renderUserLoanSettings() {
-        const container = document.getElementById('user-loan-list');
-        if (!container) return;
-
-        const settings = this.settings.userLoanSettings || [];
-        
-        if (settings.length === 0) {
-            container.innerHTML = `
-                <div class="empty-user-loan-list">
-                    <i class="fas fa-user-clock"></i>
-                    <h3>尚未設定任何使用者借閱時間</h3>
-                    <p>點擊「新增使用者設定」為特定使用者設定借閱時間</p>
-                </div>
-            `;
-            return;
-        }
-
-        container.innerHTML = settings.map((setting, index) => `
-            <div class="user-loan-item">
-                <div class="user-loan-info">
-                    <div class="user-loan-username">${setting.username}</div>
-                    <div class="user-loan-details">
-                        可借閱 ${setting.days} 天
-                        ${setting.reason ? ` - ${setting.reason}` : ''}
-                        <br>
-                        <small>設定於 ${new Date(setting.createdAt).toLocaleDateString()}</small>
-                    </div>
-                </div>
-                <div class="user-loan-days">${setting.days} 天</div>
-                <div class="user-loan-actions">
-                    <button class="btn btn-info btn-small" onclick="library.editUserLoanSetting(${index})">
-                        <i class="fas fa-edit"></i> 編輯
-                    </button>
-                    <button class="btn btn-danger btn-small" onclick="library.deleteUserLoanSetting(${index})">
-                        <i class="fas fa-trash"></i> 刪除
-                    </button>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    // 顯示新增/編輯使用者借閱設定模態框
-    showAddUserLoanModal(editIndex = null) {
-        const modal = document.getElementById('user-loan-modal');
-        const form = document.getElementById('user-loan-form');
-        const deleteBtn = document.getElementById('delete-user-loan-btn');
-        
-        // 重置表單
-        form.reset();
-        document.getElementById('user-loan-editing-index').value = editIndex || '';
-        
-        if (editIndex !== null) {
-            // 編輯模式
-            const setting = this.settings.userLoanSettings[editIndex];
-            document.getElementById('user-loan-username').value = setting.username;
-            document.getElementById('user-loan-days').value = setting.days;
-            document.getElementById('user-loan-reason').value = setting.reason || '';
-            deleteBtn.style.display = 'inline-block';
-        } else {
-            // 新增模式
-            deleteBtn.style.display = 'none';
-        }
-        
-        if (modal) modal.style.display = 'block';
-    }
-
-    // 編輯使用者借閱設定
-    editUserLoanSetting(index) {
-        this.showAddUserLoanModal(index);
-    }
-
-    // 刪除使用者借閱設定
-    deleteUserLoanSetting(index) {
-        if (!confirm('確定要刪除這個使用者的借閱時間設定嗎？')) return;
-        
-        this.settings.userLoanSettings.splice(index, 1);
-        this.saveData();
-        this.renderUserLoanSettings();
-        this.showToast('使用者借閱設定已刪除', 'success');
-    }
-
-    // 處理使用者借閱設定表單提交
-    handleUserLoanForm(e) {
-        e.preventDefault();
-        
-        const editingIndex = document.getElementById('user-loan-editing-index').value;
-        const username = document.getElementById('user-loan-username').value.trim();
-        const days = parseInt(document.getElementById('user-loan-days').value, 10);
-        const reason = document.getElementById('user-loan-reason').value.trim();
-        
-        if (!username) {
-            this.showToast('請輸入使用者名稱', 'error');
-            return;
-        }
-        
-        if (!Number.isFinite(days) || days < 1 || days > 365) {
-            this.showToast('借閱天數必須在 1-365 天之間', 'error');
-            return;
-        }
-        
-        const setting = {
-            username,
-            days,
-            reason,
-            createdAt: editingIndex ? this.settings.userLoanSettings[editingIndex].createdAt : new Date().toISOString()
-        };
-        
-        if (editingIndex !== '') {
-            // 更新現有設定
-            this.settings.userLoanSettings[parseInt(editingIndex)] = setting;
-            this.showToast('使用者借閱設定已更新', 'success');
-        } else {
-            // 檢查是否已存在該使用者的設定
-            if (this.getUserLoanSetting(username)) {
-                this.showToast('該使用者已有借閱時間設定，請使用編輯功能修改', 'warning');
-                return;
-            }
-            // 新增設定
-            this.settings.userLoanSettings.push(setting);
-            this.showToast('使用者借閱設定已新增', 'success');
-        }
-        
-        this.saveData();
-        this.renderUserLoanSettings();
-        
-        // 關閉模態框
-        document.getElementById('user-loan-modal').style.display = 'none';
-    }
-
-    // 搜尋使用者借閱設定
-    searchUserLoanSettings() {
-        const searchTerm = document.getElementById('user-loan-search').value.trim().toLowerCase();
-        const container = document.getElementById('user-loan-list');
-        
-        if (!searchTerm) {
-            this.renderUserLoanSettings();
-            return;
-        }
-        
-        const settings = this.settings.userLoanSettings || [];
-        const filteredSettings = settings.filter(setting => 
-            setting.username.toLowerCase().includes(searchTerm)
-        );
-        
-        if (filteredSettings.length === 0) {
-            container.innerHTML = `
-                <div class="empty-user-loan-list">
-                    <i class="fas fa-search"></i>
-                    <h3>找不到符合的使用者設定</h3>
-                    <p>請嘗試其他搜尋關鍵字</p>
-                </div>
-            `;
-            return;
-        }
-        
-        // 使用過濾後的設定重新渲染列表
-        const originalSettings = this.settings.userLoanSettings;
-        this.settings.userLoanSettings = filteredSettings;
-        this.renderUserLoanSettings();
-        this.settings.userLoanSettings = originalSettings;
-    }
-
-    // 顯示修改應還日期模態框
-    showEditDueDateModal(borrowId) {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以修改應還日期', 'error');
-            return;
-        }
-
-        const borrowRecord = this.borrowedBooks.find(b => b.id === borrowId);
-        if (!borrowRecord) {
-            this.showToast('找不到借閱記錄', 'error');
-            return;
-        }
-
-        const modal = document.getElementById('edit-due-date-modal');
-        const bookInfo = document.getElementById('edit-due-date-book-info');
-        const borrowIdInput = document.getElementById('edit-due-date-borrow-id');
-        const dueDateInput = document.getElementById('edit-due-date');
-        const reasonInput = document.getElementById('edit-due-date-reason');
-
-        // 填入借閱記錄資訊
-        const borrowDate = new Date(borrowRecord.borrowDate);
-        const currentDueDate = new Date(borrowRecord.dueDate);
-        
-        bookInfo.innerHTML = `
-            <div><strong>書名：</strong>${borrowRecord.bookTitle}</div>
-            <div><strong>書碼：</strong>${borrowRecord.bookId}</div>
-            <div><strong>借閱者：</strong>${borrowRecord.userId}</div>
-            <div><strong>借閱日期：</strong>${borrowDate.toLocaleDateString()}</div>
-            <div><strong>目前應還日期：</strong>${currentDueDate.toLocaleDateString()}</div>
-        `;
-
-        borrowIdInput.value = borrowId;
-        
-        // 設定日期輸入框的最小值為今天，最大值為一年後
-        const today = new Date();
-        const maxDate = new Date(today);
-        maxDate.setFullYear(today.getFullYear() + 1);
-        
-        dueDateInput.min = today.toISOString().split('T')[0];
-        dueDateInput.max = maxDate.toISOString().split('T')[0];
-        dueDateInput.value = currentDueDate.toISOString().split('T')[0];
-        
-        reasonInput.value = '';
-
-        if (modal) modal.style.display = 'block';
-    }
-
-    // 顯示借閱者清單模態框
-    showBorrowersListModal() {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以查看借閱者清單', 'error');
-            return;
-        }
-
-        const modal = document.getElementById('borrowers-list-modal');
-        this.renderBorrowersList();
-        
-        if (modal) modal.style.display = 'block';
-    }
-
-    // 渲染借閱者清單
-    renderBorrowersList(filterType = 'all') {
-        const container = document.getElementById('borrowers-list');
-        const totalCount = document.getElementById('total-borrowers-count');
-        
-        if (!container) return;
-
-        // 獲取所有未歸還的借閱記錄
-        const unreturnedBooks = this.borrowedBooks.filter(b => !b.returnedAt);
-        
-        // 按借閱者分組
-        const borrowersMap = new Map();
-        
-        unreturnedBooks.forEach(record => {
-            const userInfo = this.users.find(u => u.username === record.userId);
-            
-            if (!borrowersMap.has(record.userId)) {
-                borrowersMap.set(record.userId, {
-                    username: record.userId,
-                    realName: userInfo ? userInfo.realName : record.userId,
-                    phoneNumber: userInfo ? userInfo.phoneNumber : '未提供',
-                    books: [],
-                    hasOverdue: false
-                });
-            }
-            
-            const borrower = borrowersMap.get(record.userId);
-            const dueDate = new Date(record.dueDate);
-            const now = new Date();
-            const isOverdue = dueDate < now;
-            
-            borrower.books.push({
-                ...record,
-                isOverdue,
-                daysOverdue: isOverdue ? Math.ceil((now - dueDate) / (1000 * 60 * 60 * 24)) : 0
-            });
-            
-            if (isOverdue) {
-                borrower.hasOverdue = true;
-            }
-        });
-
-        let borrowers = Array.from(borrowersMap.values());
-
-        // 根據篩選類型過濾
-        if (filterType === 'overdue') {
-            borrowers = borrowers.filter(b => b.hasOverdue);
-        }
-
-        // 更新統計
-        totalCount.textContent = `${borrowers.length} 位借閱者`;
-
-        if (borrowers.length === 0) {
-            container.innerHTML = `
-                <div class="empty-borrowers-list">
-                    <i class="fas fa-users"></i>
-                    <h3>${filterType === 'overdue' ? '沒有逾期借閱者' : '沒有借閱者'}</h3>
-                    <p>${filterType === 'overdue' ? '所有書籍都已按時歸還' : '目前沒有人借閱書籍'}</p>
-                </div>
-            `;
-            return;
-        }
-
-        container.innerHTML = borrowers.map(borrower => `
-            <div class="borrower-item ${borrower.hasOverdue ? 'overdue' : ''}">
-                <div class="borrower-info">
-                    <div class="borrower-name">
-                        ${borrower.realName}
-                        ${borrower.hasOverdue ? '<i class="fas fa-exclamation-triangle" style="color: #f56565;"></i>' : ''}
-                    </div>
-                    <div class="borrower-details">
-                        <div><i class="fas fa-user"></i> 帳號：${borrower.username}</div>
-                        <div><i class="fas fa-phone"></i> 電話：${borrower.phoneNumber}</div>
-                        <div><i class="fas fa-book"></i> 借閱 ${borrower.books.length} 本書</div>
-                    </div>
-                    <div class="borrower-books">
-                        ${borrower.books.map(book => `
-                            <div class="borrower-book-item ${book.isOverdue ? 'overdue' : ''}">
-                                <strong>${book.bookTitle}</strong> (${book.bookId})
-                                ${book.isOverdue ? 
-                                    `<span style="color: #f56565;"> - 逾期 ${book.daysOverdue} 天</span>` : 
-                                    `<span style="color: #48bb78;"> - 應還 ${new Date(book.dueDate).toLocaleDateString()}</span>`
-                                }
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-                <div class="borrower-status">
-                    <div class="borrower-status-badge ${borrower.hasOverdue ? 'overdue' : 'normal'}">
-                        ${borrower.hasOverdue ? '逾期' : '正常'}
-                    </div>
-                    <div style="font-size: 0.75rem; color: #718096;">
-                        ${borrower.books.length} 本書
-                    </div>
-                </div>
-                <div class="borrower-actions">
-                    ${borrower.hasOverdue ? `
-                        <button class="btn btn-warning" onclick="library.showOverdueNotification('${borrower.username}')">
-                            <i class="fas fa-bell"></i> 逾期通知
-                        </button>
-                    ` : ''}
-                    <button class="btn btn-info" onclick="library.contactBorrower('${borrower.phoneNumber}')">
-                        <i class="fas fa-phone"></i> 聯絡
-                    </button>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    // 顯示逾期借閱者
-    showOverdueBorrowers() {
-        this.renderBorrowersList('overdue');
-    }
-
-    // 搜尋借閱者
-    searchBorrowers() {
-        const searchTerm = document.getElementById('borrowers-search').value.trim().toLowerCase();
-        const container = document.getElementById('borrowers-list');
-        
-        if (!searchTerm) {
-            this.renderBorrowersList();
-            return;
-        }
-
-        // 獲取所有未歸還的借閱記錄
-        const unreturnedBooks = this.borrowedBooks.filter(b => !b.returnedAt);
-        
-        // 按借閱者分組
-        const borrowersMap = new Map();
-        
-        unreturnedBooks.forEach(record => {
-            const userInfo = this.users.find(u => u.username === record.userId);
-            
-            if (!borrowersMap.has(record.userId)) {
-                borrowersMap.set(record.userId, {
-                    username: record.userId,
-                    realName: userInfo ? userInfo.realName : record.userId,
-                    phoneNumber: userInfo ? userInfo.phoneNumber : '未提供',
-                    books: [],
-                    hasOverdue: false
-                });
-            }
-            
-            const borrower = borrowersMap.get(record.userId);
-            const dueDate = new Date(record.dueDate);
-            const now = new Date();
-            const isOverdue = dueDate < now;
-            
-            borrower.books.push({
-                ...record,
-                isOverdue,
-                daysOverdue: isOverdue ? Math.ceil((now - dueDate) / (1000 * 60 * 60 * 24)) : 0
-            });
-            
-            if (isOverdue) {
-                borrower.hasOverdue = true;
-            }
-        });
-
-        // 搜尋過濾
-        const borrowers = Array.from(borrowersMap.values()).filter(borrower => 
-            borrower.realName.toLowerCase().includes(searchTerm) ||
-            borrower.username.toLowerCase().includes(searchTerm) ||
-            borrower.phoneNumber.includes(searchTerm)
-        );
-
-        // 更新統計
-        document.getElementById('total-borrowers-count').textContent = `${borrowers.length} 位借閱者`;
-
-        if (borrowers.length === 0) {
-            container.innerHTML = `
-                <div class="empty-borrowers-list">
-                    <i class="fas fa-search"></i>
-                    <h3>找不到符合的借閱者</h3>
-                    <p>請嘗試其他搜尋關鍵字</p>
-                </div>
-            `;
-            return;
-        }
-
-        // 使用相同的渲染邏輯
-        container.innerHTML = borrowers.map(borrower => `
-            <div class="borrower-item ${borrower.hasOverdue ? 'overdue' : ''}">
-                <div class="borrower-info">
-                    <div class="borrower-name">
-                        ${borrower.realName}
-                        ${borrower.hasOverdue ? '<i class="fas fa-exclamation-triangle" style="color: #f56565;"></i>' : ''}
-                    </div>
-                    <div class="borrower-details">
-                        <div><i class="fas fa-user"></i> 帳號：${borrower.username}</div>
-                        <div><i class="fas fa-phone"></i> 電話：${borrower.phoneNumber}</div>
-                        <div><i class="fas fa-book"></i> 借閱 ${borrower.books.length} 本書</div>
-                    </div>
-                    <div class="borrower-books">
-                        ${borrower.books.map(book => `
-                            <div class="borrower-book-item ${book.isOverdue ? 'overdue' : ''}">
-                                <strong>${book.bookTitle}</strong> (${book.bookId})
-                                ${book.isOverdue ? 
-                                    `<span style="color: #f56565;"> - 逾期 ${book.daysOverdue} 天</span>` : 
-                                    `<span style="color: #48bb78;"> - 應還 ${new Date(book.dueDate).toLocaleDateString()}</span>`
-                                }
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-                <div class="borrower-status">
-                    <div class="borrower-status-badge ${borrower.hasOverdue ? 'overdue' : 'normal'}">
-                        ${borrower.hasOverdue ? '逾期' : '正常'}
-                    </div>
-                    <div style="font-size: 0.75rem; color: #718096;">
-                        ${borrower.books.length} 本書
-                    </div>
-                </div>
-                <div class="borrower-actions">
-                    ${borrower.hasOverdue ? `
-                        <button class="btn btn-warning" onclick="library.showOverdueNotification('${borrower.username}')">
-                            <i class="fas fa-bell"></i> 逾期通知
-                        </button>
-                    ` : ''}
-                    <button class="btn btn-info" onclick="library.contactBorrower('${borrower.phoneNumber}')">
-                        <i class="fas fa-phone"></i> 聯絡
-                    </button>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    // 顯示逾期通知模態框
-    showOverdueNotification(username) {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以發送逾期通知', 'error');
-            return;
-        }
-
-        const userInfo = this.users.find(u => u.username === username);
-        const overdueBooks = this.borrowedBooks.filter(b => 
-            b.userId === username && 
-            !b.returnedAt && 
-            new Date(b.dueDate) < new Date()
-        );
-
-        if (!userInfo || overdueBooks.length === 0) {
-            this.showToast('找不到逾期借閱記錄', 'error');
-            return;
-        }
-
-        const modal = document.getElementById('overdue-notification-modal');
-        const borrowerInfo = document.getElementById('notification-borrower-info');
-        const borrowerIdInput = document.getElementById('notification-borrower-id');
-        const messageTextarea = document.getElementById('notification-message');
-
-        // 填入借閱者資訊
-        borrowerInfo.innerHTML = `
-            <div><strong>姓名：</strong>${userInfo.realName}</div>
-            <div><strong>帳號：</strong>${userInfo.username}</div>
-            <div><strong>電話：</strong>${userInfo.phoneNumber}</div>
-            <div><strong>逾期書籍：</strong>${overdueBooks.length} 本</div>
-            <div><strong>逾期書籍清單：</strong></div>
-            ${overdueBooks.map(book => {
-                const daysOverdue = Math.ceil((new Date() - new Date(book.dueDate)) / (1000 * 60 * 60 * 24));
-                return `<div style="margin-left: 20px;">• ${book.bookTitle} (逾期 ${daysOverdue} 天)</div>`;
-            }).join('')}
-        `;
-
-        borrowerIdInput.value = username;
-        
-        // 預設通知內容
-        const defaultMessage = `親愛的 ${userInfo.realName}，\n\n您在博幼圖書館借閱的以下書籍已逾期：\n${overdueBooks.map(book => {
-            const daysOverdue = Math.ceil((new Date() - new Date(book.dueDate)) / (1000 * 60 * 60 * 24));
-            return `• ${book.bookTitle} (逾期 ${daysOverdue} 天)`;
-        }).join('\n')}\n\n請盡快歸還，謝謝！\n\n博幼圖書館`;
-        
-        messageTextarea.value = defaultMessage;
-
-        if (modal) modal.style.display = 'block';
-    }
-
-    // 處理逾期通知表單提交
-    handleOverdueNotificationForm(e) {
-        e.preventDefault();
-        
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以發送逾期通知', 'error');
-            return;
-        }
-
-        const borrowerId = document.getElementById('notification-borrower-id').value;
-        const method = document.getElementById('notification-method').value;
-        const message = document.getElementById('notification-message').value.trim();
-        const status = document.getElementById('notification-status').value;
-
-        if (!borrowerId || !message) {
-            this.showToast('請填寫完整資訊', 'error');
-            return;
-        }
-
-        const userInfo = this.users.find(u => u.username === borrowerId);
-        if (!userInfo) {
-            this.showToast('找不到借閱者資訊', 'error');
-            return;
-        }
-
-        // 記錄通知（這裡可以實際發送通知或記錄到系統）
-        const notification = {
-            borrowerId,
-            borrowerName: userInfo.realName,
-            method,
-            message,
-            status,
-            createdAt: new Date().toISOString(),
-            createdBy: this.currentUser.username
-        };
-
-        // 儲存通知記錄（可以添加到 settings 或新的 notifications 陣列）
-        if (!this.settings.notifications) {
-            this.settings.notifications = [];
-        }
-        this.settings.notifications.push(notification);
-
-        this.saveData();
-        
-        // 關閉模態框
-        document.getElementById('overdue-notification-modal').style.display = 'none';
-        
-        this.showToast(`逾期通知已${status === 'notified' ? '發送' : '記錄'}給 ${userInfo.realName}`, 'success');
-        
-        // 重新渲染借閱者清單
-        this.renderBorrowersList();
-    }
-
-    // 聯絡借閱者
-    contactBorrower(phoneNumber) {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以聯絡借閱者', 'error');
-            return;
-        }
-
-        if (phoneNumber === '未提供') {
-            this.showToast('該借閱者未提供電話號碼', 'warning');
-            return;
-        }
-
-        // 複製電話號碼到剪貼簿
-        navigator.clipboard.writeText(phoneNumber).then(() => {
-            this.showToast(`電話號碼 ${phoneNumber} 已複製到剪貼簿`, 'success');
-        }).catch(() => {
-            // 如果複製失敗，顯示電話號碼
-            this.showToast(`請撥打電話：${phoneNumber}`, 'info');
-        });
-    }
-
-    // 顯示身分審核管理模態框
-    showStaffApprovalModal() {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以管理身分審核', 'error');
-            return;
-        }
-
-        const modal = document.getElementById('staff-approval-modal');
-        if (modal) modal.style.display = 'block';
-
-        // 跨設備審核：以 Google Sheets 為準
-        this.fetchStaffApplicationsFromGoogleSheets({ onlyPending: false })
-            .then(() => this.renderApplicationsList())
-            .catch((e) => {
-                console.error('fetchStaffApplicationsFromGoogleSheets error:', e);
-                this.showToast('從 Google Sheets 載入審核清單失敗，改用本機資料', 'warning');
-                this.renderApplicationsList();
-            });
-    }
-
-    // 渲染申請列表
-    renderApplicationsList(filterType = 'all') {
-        const container = document.getElementById('applications-list');
-        const totalCount = document.getElementById('pending-approval-count');
-        
-        if (!container) return;
-
-        const sourceApplications = Array.isArray(this.cloudStaffApplications)
-            ? this.cloudStaffApplications
-            : this.settings.staffApplications;
-
-        let applications = sourceApplications;
-
-        // 根據篩選類型過濾
-        if (filterType === 'pending') {
-            applications = applications.filter(app => app.status === 'pending');
-        } else if (filterType === 'approved') {
-            applications = applications.filter(app => app.status === 'approved');
-        } else if (filterType === 'rejected') {
-            applications = applications.filter(app => app.status === 'rejected');
-        }
-
-        // 更新統計
-        const pendingCount = sourceApplications.filter(app => app.status === 'pending').length;
-        totalCount.textContent = `${pendingCount} 筆待審核`;
-
-        if (applications.length === 0) {
-            container.innerHTML = `
-                <div class="empty-applications-list">
-                    <i class="fas fa-user-check"></i>
-                    <h3>沒有申請記錄</h3>
-                    <p>${filterType === 'pending' ? '目前沒有待審核的申請' : '沒有相關申請記錄'}</p>
-                </div>
-            `;
-            return;
-        }
-
-        container.innerHTML = applications.map(application => {
-            const submittedDate = new Date(application.submittedAt);
-            const isUrgent = application.status === 'pending' && 
-                           (Date.now() - submittedDate.getTime()) > (7 * 24 * 60 * 60 * 1000); // 超過7天
-
-            return `
-                <div class="application-item ${isUrgent ? 'urgent' : ''}">
-                    <div class="application-info">
-                        <div class="applicant-name">
-                            ${application.realName}
-                            ${isUrgent ? '<i class="fas fa-exclamation-triangle" style="color: #f56565;" title="申請已超過7天"></i>' : ''}
-                        </div>
-                        <div class="application-details">
-                            <div><i class="fas fa-user"></i> 帳號：${application.username}</div>
-                            <div><i class="fas fa-phone"></i> 電話：${application.phoneNumber}</div>
-                            <div><i class="fas fa-briefcase"></i> 申請身份：老師/館員</div>
-                            <div><i class="fas fa-calendar"></i> 申請時間：${submittedDate.toLocaleString()}</div>
-                            ${application.reviewedAt ? `
-                                <div><i class="fas fa-gavel"></i> 審核時間：${new Date(application.reviewedAt).toLocaleString()}</div>
-                                <div><i class="fas fa-user-shield"></i> 審核人：${application.reviewedBy}</div>
-                            ` : ''}
-                        </div>
-                        <div class="application-timeline">
-                            <div class="timeline-item">
-                                <div class="timeline-dot submitted"></div>
-                                <span>申請提交</span>
-                            </div>
-                            ${application.status === 'pending' ? `
-                                <div class="timeline-item">
-                                    <div class="timeline-dot"></div>
-                                    <span>等待審核</span>
-                                </div>
-                            ` : ''}
-                            ${application.status === 'approved' ? `
-                                <div class="timeline-item">
-                                    <div class="timeline-dot reviewed"></div>
-                                    <span>審核通過</span>
-                                </div>
-                            ` : ''}
-                            ${application.status === 'rejected' ? `
-                                <div class="timeline-item">
-                                    <div class="timeline-dot rejected"></div>
-                                    <span>審核拒絕</span>
-                                </div>
-                            ` : ''}
-                        </div>
-                    </div>
-                    <div class="application-status">
-                        <div class="application-status-badge ${application.status}">
-                            ${application.status === 'pending' ? '待審核' : 
-                              application.status === 'approved' ? '已通過' : '已拒絕'}
-                        </div>
-                        <div style="font-size: 0.75rem; color: #718096;">
-                            ${Math.floor((Date.now() - submittedDate.getTime()) / (1000 * 60 * 60 * 24))} 天前
-                        </div>
-                    </div>
-                    <div class="application-actions">
-                        <button class="btn btn-primary" onclick="library.showApprovalDetail('${application.id}')">
-                            <i class="fas fa-eye"></i> 查看
-                        </button>
-                        ${application.status === 'pending' ? `
-                            <button class="btn btn-success" onclick="library.approveApplication('${application.id}')">
-                                <i class="fas fa-check"></i> 通過
-                            </button>
-                            <button class="btn btn-danger" onclick="library.rejectApplication('${application.id}')">
-                                <i class="fas fa-times"></i> 拒絕
-                            </button>
-                        ` : ''}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    // 顯示審核詳情
-    showApprovalDetail(applicationId) {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以查看審核詳情', 'error');
-            return;
-        }
-
-        const application = (Array.isArray(this.cloudStaffApplications) ? this.cloudStaffApplications : this.settings.staffApplications)
-            .find(app => app.id === applicationId);
-        if (!application) {
-            this.showToast('找不到申請記錄', 'error');
-            return;
-        }
-
-        const modal = document.getElementById('approval-detail-modal');
-        const applicantInfo = document.getElementById('approval-applicant-info');
-        const applicationIdInput = document.getElementById('approval-application-id');
-        const decisionSelect = document.getElementById('approval-decision');
-        const reasonTextarea = document.getElementById('approval-reason');
-        const noteTextarea = document.getElementById('approval-note');
-
-        // 填入申請人資訊
-        applicantInfo.innerHTML = `
-            <div><strong>姓名：</strong>${application.realName}</div>
-            <div><strong>帳號：</strong>${application.username}</div>
-            <div><strong>電話：</strong>${application.phoneNumber}</div>
-            <div><strong>申請身份：</strong>老師/館員</div>
-            <div><strong>申請時間：</strong>${new Date(application.submittedAt).toLocaleString()}</div>
-            ${application.reviewedAt ? `
-                <div><strong>審核狀態：</strong>${application.status === 'approved' ? '已通過' : application.status === 'rejected' ? '已拒絕' : '待審核'}</div>
-                <div><strong>審核時間：</strong>${new Date(application.reviewedAt).toLocaleString()}</div>
-                <div><strong>審核人：</strong>${application.reviewedBy}</div>
-                ${application.reason ? `<div><strong>審核意見：</strong>${application.reason}</div>` : ''}
-                ${application.note ? `<div><strong>備註：</strong>${application.note}</div>` : ''}
-            ` : ''}
-        `;
-
-        applicationIdInput.value = applicationId;
-        
-        // 設定當前狀態
-        decisionSelect.value = application.decision || '';
-        reasonTextarea.value = application.reason || '';
-        noteTextarea.value = application.note || '';
-
-        if (modal) modal.style.display = 'block';
-    }
-
-    // 快速通過申請
-    approveApplication(applicationId) {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以審核申請', 'error');
-            return;
-        }
-
-        const application = (Array.isArray(this.cloudStaffApplications) ? this.cloudStaffApplications : this.settings.staffApplications)
-            .find(app => app.id === applicationId);
-        if (!application) {
-            this.showToast('找不到申請記錄', 'error');
-            return;
-        }
-
-        const reviewedAt = new Date().toISOString();
-        this.updateApplicationStatusToGoogleSheets({
-            applicationId,
-            decision: 'approved',
-            reviewedAt,
-            reviewedBy: this.currentUser.username,
-            reason: '審核通過',
-            note: ''
-        }).then(() => {
-            // 更新本機快取
-            application.status = 'approved';
-            application.decision = 'approved';
-            application.reviewedAt = reviewedAt;
-            application.reviewedBy = this.currentUser.username;
-            application.reason = '審核通過';
-
-            this.upsertLocalApplication(application);
-
-            const user = this.users.find(u => u.username === application.username);
-            if (user) user.role = 'staff';
-            this.saveData();
-
-            this.showToast(`已通過 ${application.realName} 的老師/館員身份申請`, 'success');
-            this.renderApplicationsList();
-        }).catch((e) => {
-            console.error('updateApplicationStatusToGoogleSheets error:', e);
-            this.showToast('回寫 Google Sheets 失敗，請稍後再試', 'error');
-        });
-    }
-
-    // 快速拒絕申請
-    rejectApplication(applicationId) {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以審核申請', 'error');
-            return;
-        }
-
-        const application = (Array.isArray(this.cloudStaffApplications) ? this.cloudStaffApplications : this.settings.staffApplications)
-            .find(app => app.id === applicationId);
-        if (!application) {
-            this.showToast('找不到申請記錄', 'error');
-            return;
-        }
-
-        const reviewedAt = new Date().toISOString();
-        this.updateApplicationStatusToGoogleSheets({
-            applicationId,
-            decision: 'rejected',
-            reviewedAt,
-            reviewedBy: this.currentUser.username,
-            reason: '審核拒絕',
-            note: ''
-        }).then(() => {
-            application.status = 'rejected';
-            application.decision = 'rejected';
-            application.reviewedAt = reviewedAt;
-            application.reviewedBy = this.currentUser.username;
-            application.reason = '審核拒絕';
-
-            this.upsertLocalApplication(application);
-            this.saveData();
-
-            this.showToast(`已拒絕 ${application.realName} 的老師/館員身份申請`, 'info');
-            this.renderApplicationsList();
-        }).catch((e) => {
-            console.error('updateApplicationStatusToGoogleSheets error:', e);
-            this.showToast('回寫 Google Sheets 失敗，請稍後再試', 'error');
-        });
-    }
-
-    // 處理審核表單提交
-    handleApprovalForm(e) {
-        e.preventDefault();
-        
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以審核申請', 'error');
-            return;
-        }
-
-        const applicationId = document.getElementById('approval-application-id').value;
-        const decision = document.getElementById('approval-decision').value;
-        const reason = document.getElementById('approval-reason').value.trim();
-        const note = document.getElementById('approval-note').value.trim();
-
-        if (!applicationId || !decision) {
-            this.showToast('請選擇審核決定', 'error');
-            return;
-        }
-
-        const application = (Array.isArray(this.cloudStaffApplications) ? this.cloudStaffApplications : this.settings.staffApplications)
-            .find(app => app.id === applicationId);
-        if (!application) {
-            this.showToast('找不到申請記錄', 'error');
-            return;
-        }
-
-        const reviewedAt = new Date().toISOString();
-        this.updateApplicationStatusToGoogleSheets({
-            applicationId,
-            decision,
-            reviewedAt,
-            reviewedBy: this.currentUser.username,
-            reason: reason || `審核${decision === 'approved' ? '通過' : '拒絕'}`,
-            note
-        }).then(() => {
-            application.status = decision;
-            application.decision = decision;
-            application.reviewedAt = reviewedAt;
-            application.reviewedBy = this.currentUser.username;
-            application.reason = reason || `審核${decision === 'approved' ? '通過' : '拒絕'}`;
-            application.note = note;
-
-            if (decision === 'approved') {
-                const user = this.users.find(u => u.username === application.username);
-                if (user) user.role = 'staff';
-            }
-
-            this.upsertLocalApplication(application);
-            this.saveData();
-
-            document.getElementById('approval-detail-modal').style.display = 'none';
-            this.showToast(`已${decision === 'approved' ? '通過' : '拒絕'} ${application.realName} 的申請`, 'success');
-            this.renderApplicationsList();
-        }).catch((e) => {
-            console.error('updateApplicationStatusToGoogleSheets error:', e);
-            this.showToast('回寫 Google Sheets 失敗，請稍後再試', 'error');
-        });
-    }
-
-    // 搜尋申請
-    searchApplications() {
-        const searchTerm = document.getElementById('approval-search').value.trim().toLowerCase();
-        const container = document.getElementById('applications-list');
-        
-        if (!searchTerm) {
-            this.renderApplicationsList();
-            return;
-        }
-
-        const applications = this.settings.staffApplications.filter(application => 
-            application.realName.toLowerCase().includes(searchTerm) ||
-            application.username.toLowerCase().includes(searchTerm) ||
-            application.phoneNumber.includes(searchTerm)
-        );
-
-        if (applications.length === 0) {
-            container.innerHTML = `
-                <div class="empty-applications-list">
-                    <i class="fas fa-search"></i>
-                    <h3>找不到符合的申請</h3>
-                    <p>請嘗試其他搜尋關鍵字</p>
-                </div>
-            `;
-            return;
-        }
-
-        // 使用相同的渲染邏輯
-        container.innerHTML = applications.map(application => {
-            const submittedDate = new Date(application.submittedAt);
-            const isUrgent = application.status === 'pending' && 
-                           (Date.now() - submittedDate.getTime()) > (7 * 24 * 60 * 60 * 1000);
-
-            return `
-                <div class="application-item ${isUrgent ? 'urgent' : ''}">
-                    <div class="application-info">
-                        <div class="applicant-name">
-                            ${application.realName}
-                            ${isUrgent ? '<i class="fas fa-exclamation-triangle" style="color: #f56565;" title="申請已超過7天"></i>' : ''}
-                        </div>
-                        <div class="application-details">
-                            <div><i class="fas fa-user"></i> 帳號：${application.username}</div>
-                            <div><i class="fas fa-phone"></i> 電話：${application.phoneNumber}</div>
-                            <div><i class="fas fa-briefcase"></i> 申請身份：老師/館員</div>
-                            <div><i class="fas fa-calendar"></i> 申請時間：${submittedDate.toLocaleString()}</div>
-                            ${application.reviewedAt ? `
-                                <div><i class="fas fa-gavel"></i> 審核時間：${new Date(application.reviewedAt).toLocaleString()}</div>
-                                <div><i class="fas fa-user-shield"></i> 審核人：${application.reviewedBy}</div>
-                            ` : ''}
-                        </div>
-                        <div class="application-timeline">
-                            <div class="timeline-item">
-                                <div class="timeline-dot submitted"></div>
-                                <span>申請提交</span>
-                            </div>
-                            ${application.status === 'pending' ? `
-                                <div class="timeline-item">
-                                    <div class="timeline-dot"></div>
-                                    <span>等待審核</span>
-                                </div>
-                            ` : ''}
-                            ${application.status === 'approved' ? `
-                                <div class="timeline-item">
-                                    <div class="timeline-dot reviewed"></div>
-                                    <span>審核通過</span>
-                                </div>
-                            ` : ''}
-                            ${application.status === 'rejected' ? `
-                                <div class="timeline-item">
-                                    <div class="timeline-dot rejected"></div>
-                                    <span>審核拒絕</span>
-                                </div>
-                            ` : ''}
-                        </div>
-                    </div>
-                    <div class="application-status">
-                        <div class="application-status-badge ${application.status}">
-                            ${application.status === 'pending' ? '待審核' : 
-                              application.status === 'approved' ? '已通過' : '已拒絕'}
-                        </div>
-                        <div style="font-size: 0.75rem; color: #718096;">
-                            ${Math.floor((Date.now() - submittedDate.getTime()) / (1000 * 60 * 60 * 24))} 天前
-                        </div>
-                    </div>
-                    <div class="application-actions">
-                        <button class="btn btn-primary" onclick="library.showApprovalDetail('${application.id}')">
-                            <i class="fas fa-eye"></i> 查看
-                        </button>
-                        ${application.status === 'pending' ? `
-                            <button class="btn btn-success" onclick="library.approveApplication('${application.id}')">
-                                <i class="fas fa-check"></i> 通過
-                            </button>
-                            <button class="btn btn-danger" onclick="library.rejectApplication('${application.id}')">
-                                <i class="fas fa-times"></i> 拒絕
-                            </button>
-                        ` : ''}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    // 顯示刪除身分模態框
-    showDeleteIdentityModal() {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以刪除身分', 'error');
-            return;
-        }
-
-        document.getElementById('delete-identity-modal').style.display = 'block';
-        this.renderIdentityList();
-    }
-
-    // 渲染身分列表
-    renderIdentityList(users = null) {
-        const identityList = document.getElementById('identity-list');
-        const userList = users || this.users;
-
-        if (userList.length === 0) {
-            identityList.innerHTML = '<p style="text-align: center; color: #718096;">沒有找到使用者</p>';
-            return;
-        }
-
-        identityList.innerHTML = userList.map(user => {
-            const borrowCount = this.borrowedBooks.filter(book => book.username === user.username).length;
-            const hasApplications = this.settings.staffApplications.some(app => app.username === user.username);
-            
-            return `
-                <div class="identity-item">
-                    <div class="identity-info">
-                        <div class="identity-name">
-                            ${user.realName}
-                            <span class="identity-role ${user.role}">${this.getRoleDisplayName(user.role)}</span>
-                        </div>
-                        <div class="identity-details">
-                            帳號：${user.username}<br>
-                            電話：${user.phoneNumber}<br>
-                            ${user.lastLogin ? `最後登入：${new Date(user.lastLogin).toLocaleString()}` : '從未登入'}<br>
-                            ${hasApplications ? '有身分申請記錄' : '無身分申請記錄'}
-                        </div>
-                    </div>
-                    <div class="identity-actions">
-                        <span class="identity-borrow-count">借閱 ${borrowCount} 本</span>
-                        <button class="btn btn-danger" onclick="library.showConfirmDelete('${user.username}')" 
-                                ${user.username === this.adminUsername ? 'disabled title="不能刪除管理員"' : ''}>
-                            <i class="fas fa-trash"></i> 刪除
-                        </button>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-        // 更新統計
-        document.getElementById('total-users-count').textContent = `${userList.length} 位使用者`;
-    }
-
-    // 獲取角色顯示名稱
-    getRoleDisplayName(role) {
-        const roleNames = {
-            'student': '學生',
-            'staff': '老師/館員',
-            'admin': '管理員'
-        };
-        return roleNames[role] || role;
-    }
-
-    // 搜尋身分
-    searchIdentities() {
-        const searchTerm = document.getElementById('identity-search').value.trim();
-
-        if (!searchTerm) {
-            this.renderIdentityList();
-            return;
-        }
-
-        const filteredUsers = this.users.filter(user => 
-            user.realName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            user.phoneNumber.includes(searchTerm)
-        );
-
-        this.renderIdentityList(filteredUsers);
-    }
-
-    // 重新整理身分列表
-    refreshIdentityList() {
-        this.renderIdentityList();
-        this.showToast('身分列表已重新整理', 'success');
-    }
-
-    // 顯示確認刪除模態框
-    showConfirmDelete(username) {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以刪除身分', 'error');
-            return;
-        }
-
-        if (username === this.adminUsername) {
-            this.showToast('不能刪除管理員帳號', 'error');
-            return;
-        }
-
-        const user = this.users.find(u => u.username === username);
-        if (!user) {
-            this.showToast('找不到使用者', 'error');
-            return;
-        }
-
-        // 設定使用者資訊
-        document.getElementById('delete-username').value = username;
-        document.getElementById('delete-user-info').innerHTML = `
-            <strong>姓名：</strong>${user.realName}<br>
-            <strong>帳號：</strong>${user.username}<br>
-            <strong>電話：</strong>${user.phoneNumber}<br>
-            <strong>角色：</strong>${this.getRoleDisplayName(user.role)}<br>
-            <strong>借閱數量：</strong>${this.borrowedBooks.filter(book => book.username === username).length} 本
-        `;
-
-        // 重置表單
-        document.getElementById('delete-reason').value = '';
-
-        // 顯示模態框
-        document.getElementById('confirm-delete-modal').style.display = 'block';
-    }
-
-    // 處理確認刪除表單
-    handleConfirmDelete(e) {
-        e.preventDefault();
-        
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以刪除身分', 'error');
-            return;
-        }
-
-        const username = document.getElementById('delete-username').value;
-        const reason = document.getElementById('delete-reason').value.trim();
-
-        if (!username) {
-            this.showToast('找不到使用者資訊', 'error');
-            return;
-        }
-
-        if (!reason) {
-            this.showToast('請輸入刪除原因', 'error');
-            return;
-        }
-
-        if (username === this.adminUsername) {
-            this.showToast('不能刪除管理員帳號', 'error');
-            return;
-        }
-
-        // 執行刪除
-        const result = this.deleteIdentity(username, reason);
-        
-        if (result.success) {
-            // 關閉模態框
-            document.getElementById('confirm-delete-modal').style.display = 'none';
-            
-            // 重新渲染身分列表
-            this.renderIdentityList();
-            
-            this.showToast(result.message, 'success');
-        } else {
-            this.showToast(result.message, 'error');
-        }
-    }
-
-    // 刪除身分
-    deleteIdentity(username, reason) {
-        try {
-            // 檢查使用者是否存在
-            const userIndex = this.users.findIndex(u => u.username === username);
-            if (userIndex === -1) {
-                return { success: false, message: '找不到使用者' };
-            }
-
-            const user = this.users[userIndex];
-
-            // 檢查是否為管理員
-            if (username === this.adminUsername) {
-                return { success: false, message: '不能刪除管理員帳號' };
-            }
-
-            // 檢查是否有未歸還的書籍
-            const activeBorrows = this.borrowedBooks.filter(book => 
-                book.username === username && !book.returnDate
-            );
-
-            if (activeBorrows.length > 0) {
-                return { 
-                    success: false, 
-                    message: `使用者還有 ${activeBorrows.length} 本書籍未歸還，無法刪除身分` 
-                };
-            }
-
-            // 刪除身分申請記錄
-            const applicationIndex = this.settings.staffApplications.findIndex(
-                app => app.username === username
-            );
-            if (applicationIndex !== -1) {
-                this.settings.staffApplications.splice(applicationIndex, 1);
-            }
-
-            // 刪除使用者記錄
-            this.users.splice(userIndex, 1);
-
-            // 如果是當前登入的使用者，強制登出
-            if (this.currentUser && this.currentUser.username === username) {
-                this.currentUser = null;
-                this.updateLoginDisplay();
-                this.updateAdminControls();
-                this.renderBooks();
-                this.renderBorrowedBooks();
-            }
-
-            // 記錄刪除日誌
-            const deleteLog = {
-                username,
-                realName: user.realName,
-                deletedAt: new Date().toISOString(),
-                deletedBy: this.currentUser.username,
-                reason,
-                borrowCount: this.borrowedBooks.filter(book => book.username === username).length
-            };
-
-            // 儲存到通知記錄中（用於審計）
-            if (!this.settings.deleteLogs) {
-                this.settings.deleteLogs = [];
-            }
-            this.settings.deleteLogs.push(deleteLog);
-
-            // 儲存資料
-            this.saveData();
-
-            return { 
-                success: true, 
-                message: `已成功刪除 ${user.realName} 的身分` 
-            };
-
-        } catch (error) {
-            console.error('刪除身分時發生錯誤:', error);
-            return { success: false, message: '刪除身分時發生錯誤' };
-        }
-    }
-
-    // 同步單個申請到 Google Sheets
-    async syncApplicationToGoogleSheets(application) {
-        if (!this.settings.googleWebAppUrl) {
-            console.warn('未設定 Google Sheets Web App URL');
-            return;
-        }
-
-        try {
-            const formData = new FormData();
-            formData.append('action', 'syncApplication');
-            formData.append('applicationData', JSON.stringify(application));
-
-            const response = await fetch(this.settings.googleWebAppUrl, {
-                method: 'POST',
-                body: formData
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-                console.log('申請資料已同步到 Google Sheets:', result);
-                
-                // 顯示同步成功提示
-                if (result.success) {
-                    console.log(`申請 ${application.realName} 的資料已成功同步到 Google Sheets`);
-                    
-                    // 如果是當前使用者的申請，顯示成功提示
-                    if (this.currentUser && this.currentUser.username === application.username) {
-                        setTimeout(() => {
-                            this.showToast('申請資料已成功上傳到 Google Sheets', 'success');
-                        }, 2000);
-                    }
-                }
-            } else {
-                console.error('同步申請到 Google Sheets 失敗:', response.statusText);
-                
-                // 顯示同步失敗提示
-                if (this.currentUser && this.currentUser.username === application.username) {
-                    setTimeout(() => {
-                        this.showToast('申請資料上傳失敗，請聯繫管理員', 'warning');
-                    }, 2000);
-                }
-            }
-        } catch (error) {
-            console.error('同步申請到 Google Sheets 時發生錯誤:', error);
-            
-            // 顯示網路錯誤提示
-            if (this.currentUser && this.currentUser.username === application.username) {
-                setTimeout(() => {
-                    this.showToast('網路連線問題，申請資料將稍後重試上傳', 'warning');
-                }, 2000);
-            }
-        }
-    }
-
-    // 同步申請資料到 Google Sheets
-    async syncApplicationsToGoogle() {
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以同步資料', 'error');
-            return;
-        }
-
-        if (!this.settings.googleWebAppUrl) {
-            this.showToast('請先設定 Google Sheets Web App URL', 'warning');
-            return;
-        }
-
-        try {
-            this.showToast('正在同步申請資料到 Google Sheets...', 'info');
-
-            // 準備要同步的資料
-            const applicationsData = this.settings.staffApplications.map(app => ({
-                申請ID: app.id,
-                帳號: app.username,
-                真實姓名: app.realName,
-                電話號碼: app.phoneNumber,
-                申請身份: app.requestedRole,
-                狀態: app.status === 'pending' ? '待審核' : app.status === 'approved' ? '已通過' : '已拒絕',
-                申請時間: new Date(app.submittedAt).toLocaleString(),
-                審核時間: app.reviewedAt ? new Date(app.reviewedAt).toLocaleString() : '',
-                審核人: app.reviewedBy || '',
-                審核決定: app.decision === 'approved' ? '通過' : app.decision === 'rejected' ? '拒絕' : '',
-                審核意見: app.reason || '',
-                備註: app.note || ''
-            }));
-
-            const response = await fetch(this.settings.googleWebAppUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    action: 'syncApplications',
-                    data: applicationsData
-                })
-            });
-
-            if (response.ok) {
-                this.showToast('申請資料已成功同步到 Google Sheets', 'success');
-            } else {
-                throw new Error('同步失敗');
-            }
-        } catch (error) {
-            this.showToast('同步到 Google Sheets 失敗：' + error.message, 'error');
-        }
-    }
-
-    // 將單筆申請寫回本機 staffApplications（避免雲端審核後本機狀態不同步）
-    upsertLocalApplication(application) {
-        if (!application || !application.id) return;
-        if (!this.settings) this.settings = {};
-        if (!Array.isArray(this.settings.staffApplications)) this.settings.staffApplications = [];
-
-        const idx = this.settings.staffApplications.findIndex(a => a.id === application.id);
-        if (idx >= 0) {
-            this.settings.staffApplications[idx] = { ...this.settings.staffApplications[idx], ...application };
-        } else {
-            this.settings.staffApplications.push(application);
-        }
-    }
-
-    // 一鍵上傳所有借閱者 + 借閱紀錄到 Google Sheets（管理員限定）
-    async syncBorrowersAndBorrowsToGoogleSheets() {
-        if (!this.requireAdmin('借閱者上傳')) return;
-
-        const url = this.getGoogleWebAppUrl();
-        if (!url) {
-            this.showToast('請先由管理者設定 Google Sheets 同步網址', 'error');
-            this.showGoogleSyncModal();
-            return;
-        }
-
-        try {
-            this.showToast('正在上傳借閱者/借閱紀錄到 Google Sheets...', 'info');
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'syncBorrowersAndBorrows',
-                    payload: {
-                        borrowers: Array.isArray(this.users) ? this.users : [],
-                        borrowedBooks: Array.isArray(this.borrowedBooks) ? this.borrowedBooks : []
-                    }
-                })
-            });
-
-            const result = await response.json().catch(() => null);
-            if (!response.ok || !result || !result.ok) {
-                throw new Error(result?.error || 'Google Sheets 回應失敗');
-            }
-
-            this.showToast('借閱者/借閱紀錄已成功上傳到 Google Sheets', 'success');
-        } catch (error) {
-            console.error('syncBorrowersAndBorrowsToGoogleSheets error:', error);
-            this.showToast('借閱者上傳失敗，請檢查網路或 Apps Script 設定', 'error');
-        }
-    }
-
-    // 從 Google Sheets 讀取申請清單（跨設備審核）
-    async fetchStaffApplicationsFromGoogleSheets(options = {}) {
-        const { onlyPending = false } = options;
-        if (!this.isAdminUser()) return;
-
-        const url = this.getGoogleWebAppUrl();
-        if (!url) {
-            throw new Error('missing_google_webapp_url');
-        }
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'getApplications',
-                onlyPending
-            })
-        });
-
-        const result = await response.json().catch(() => null);
-        if (!response.ok || !result || !result.ok) {
-            throw new Error(result?.error || 'getApplications_failed');
-        }
-
-        const apps = Array.isArray(result.data) ? result.data : [];
-        this.cloudStaffApplications = apps;
-
-        // 同步到本機（保留本機仍可用）
-        apps.forEach(a => this.upsertLocalApplication(a));
-        this.saveData();
-    }
-
-    // 回寫審核結果到 Google Sheets（跨設備審核）
-    async updateApplicationStatusToGoogleSheets(params) {
-        if (!this.isAdminUser()) throw new Error('not_admin');
-        const url = this.getGoogleWebAppUrl();
-        if (!url) throw new Error('missing_google_webapp_url');
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'updateApplicationStatus',
-                ...params
-            })
-        });
-
-        const result = await response.json().catch(() => null);
-        if (!response.ok || !result || !result.ok) {
-            throw new Error(result?.error || 'updateApplicationStatus_failed');
-        }
-
-        return result;
-    }
-
-    // 處理修改應還日期表單提交
-    handleEditDueDateForm(e) {
-        e.preventDefault();
-        
-        if (!this.isAdminUser()) {
-            this.showToast('只有管理員可以修改應還日期', 'error');
-            return;
-        }
-
-        const borrowId = document.getElementById('edit-due-date-borrow-id').value;
-        const newDueDate = document.getElementById('edit-due-date').value;
-        const reason = document.getElementById('edit-due-date-reason').value.trim();
-
-        if (!borrowId || !newDueDate) {
-            this.showToast('請填寫完整資訊', 'error');
-            return;
-        }
-
-        const borrowRecord = this.borrowedBooks.find(b => b.id === borrowId);
-        if (!borrowRecord) {
-            this.showToast('找不到借閱記錄', 'error');
-            return;
-        }
-
-        const oldDueDate = new Date(borrowRecord.dueDate);
-        const newDueDateObj = new Date(newDueDate + 'T23:59:59');
-        
-        // 驗證新日期不能早於今天
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        if (newDueDateObj < today) {
-            this.showToast('新的應還日期不能早於今天', 'error');
-            return;
-        }
-
-        // 更新應還日期
-        borrowRecord.dueDate = newDueDateObj.toISOString();
-        
-        // 記錄修改歷史（可選）
-        if (!borrowRecord.modificationHistory) {
-            borrowRecord.modificationHistory = [];
-        }
-        
-        borrowRecord.modificationHistory.push({
-            modifiedAt: new Date().toISOString(),
-            modifiedBy: this.currentUser.username,
-            oldDueDate: oldDueDate.toISOString(),
-            newDueDate: newDueDateObj.toISOString(),
-            reason: reason || '未提供原因'
-        });
-
-        this.saveData();
-        this.renderBorrowedBooks();
-        
-        // 關閉模態框
-        document.getElementById('edit-due-date-modal').style.display = 'none';
-        
-        this.showToast(`已成功修改應還日期至 ${newDueDateObj.toLocaleDateString()}`, 'success');
-        
-        // 同步到 Google Sheets
-        this.scheduleAutoSync();
-        this.pushToGoogleSheetsNow();
     }
 
     handleSaveSettings(e) {
@@ -2726,127 +998,21 @@ class LibrarySystem {
 
     // 顯示登入模態框
     showLoginModal() {
-        // 重置表單
-        const loginForm = document.getElementById('login-form');
-        if (loginForm) loginForm.reset();
-        
-        // 顯示簡單登入模式
-        const simpleSection = document.getElementById('simple-login-section');
-        if (simpleSection) simpleSection.style.display = 'block';
-        
-        // 顯示模態框
-        const loginModal = document.getElementById('login-modal');
-        if (loginModal) loginModal.style.display = 'block';
-        
-        // 聚焦到使用者名稱輸入框
-        setTimeout(() => {
-            const input = document.getElementById('username');
-            if (input) input.focus();
-        }, 100);
+        document.getElementById('login-modal').style.display = 'block';
     }
 
-    // 返回簡單登入
-    backToSimpleLogin() {
-        const simpleSection = document.getElementById('simple-login-section');
-        if (simpleSection) simpleSection.style.display = 'block';
-
-        setTimeout(() => {
-            const input = document.getElementById('username');
-            if (input) input.focus();
-        }, 100);
-    }
-
-    // 處理簡單登入
-    handleSimpleLogin(e) {
+    // 處理登入
+    handleLogin(e) {
         e.preventDefault();
-        const username = document.getElementById('username').value.trim();
+        const username = document.getElementById('username').value;
+        const role = document.getElementById('user-role').value;
 
-        if (!username) {
+        if (!username.trim()) {
             this.showToast('請輸入使用者名稱', 'error');
             return;
         }
 
-        // 檢查是否為管理員
-        if (username === this.adminUsername) {
-            this.currentUser = { 
-                username: this.adminUsername, 
-                realName: '系統管理員', 
-                phoneNumber: '0912345678', 
-                role: 'admin' 
-            };
-            
-            this.updateUserDisplay();
-            this.updateAdminControls();
-            this.startAutoUpdate();
-            this.renderBooks();
-            this.renderBorrowedBooks();
-            
-            document.getElementById('login-modal').style.display = 'none';
-            document.getElementById('login-form').reset();
-            this.showToast(`歡迎回來，系統管理員！`, 'success');
-            return;
-        }
-
-        // 檢查使用者是否存在
-        const userInfo = this.getUserInfo(username);
-        if (userInfo) {
-            // 使用者存在，直接登入
-            this.loginExistingUser(userInfo);
-        } else {
-            // 使用者不存在：自動建立新使用者並登入
-            const createdUser = {
-                username,
-                realName: username,
-                phoneNumber: '',
-                role: 'student',
-                lastLogin: new Date().toISOString()
-            };
-
-            this.users.push(createdUser);
-            this.saveData();
-            this.loginExistingUser(createdUser);
-            this.showToast(`歡迎 ${createdUser.realName}！`, 'success');
-        }
-    }
-
-    // 登入現有使用者
-    loginExistingUser(userInfo) {
-        // 檢查老師/館員身份申請狀態
-        let finalRole = userInfo.role;
-        if (userInfo.role === 'staff') {
-            const existingApplication = this.settings.staffApplications.find(
-                app => app.username === userInfo.username && app.status === 'approved'
-            );
-            
-            const pendingApplication = this.settings.staffApplications.find(
-                app => app.username === userInfo.username && app.status === 'pending'
-            );
-
-            if (!existingApplication && !pendingApplication) {
-                // 需要重新申請
-                finalRole = 'student';
-                this.showToast('您的老師/館員身份需要重新申請', 'info');
-            } else if (pendingApplication) {
-                // 有待審核的申請，以學生身份使用
-                finalRole = 'student';
-                this.showToast('您的老師/館員身份申請正在審核中，請耐心等候', 'info');
-            }
-        }
-
-        // 設定當前使用者
-        this.currentUser = { 
-            username: userInfo.username, 
-            realName: userInfo.realName, 
-            phoneNumber: userInfo.phoneNumber, 
-            role: finalRole 
-        };
-
-        // 更新最後登入時間
-        const userIndex = this.users.findIndex(u => u.username === userInfo.username);
-        if (userIndex >= 0) {
-            this.users[userIndex].lastLogin = new Date().toISOString();
-        }
-
+        this.currentUser = { username, role };
         this.saveData();
         this.updateUserDisplay();
         this.updateAdminControls();
@@ -2860,92 +1026,7 @@ class LibrarySystem {
         
         document.getElementById('login-modal').style.display = 'none';
         document.getElementById('login-form').reset();
-        this.showToast(`歡迎回來，${userInfo.realName}！`, 'success');
-    }
-
-    // 顯示註冊表單
-    showRegisterForm(username) {
-        // 註冊 UI 已移除，保留函數避免舊呼叫點造成錯誤
-        const simpleSection = document.getElementById('simple-login-section');
-        if (simpleSection) simpleSection.style.display = 'block';
-        const input = document.getElementById('username');
-        if (input) input.value = username || '';
-    }
-
-    // 處理註冊
-    handleRegister(e) {
-        if (e && typeof e.preventDefault === 'function') e.preventDefault();
-
-        // 註冊 UI 已移除，避免因舊事件綁定或手動呼叫造成錯誤
-        this.showToast('註冊功能已停用，請直接輸入帳號登入', 'info');
-        this.backToSimpleLogin();
-        return;
-    }
-
-    // 處理角色選擇
-    handleRoleSelection(role) {
-        // 註冊 UI 已移除，保留函數避免舊呼叫點造成錯誤
-        return;
-    }
-
-    // 檢查使用者是否存在
-    checkUserExists(username) {
-        return this.users.some(user => user.username === username) || 
-               username === this.adminUsername;
-    }
-
-    // 獲取使用者資訊
-    getUserInfo(username) {
-        if (username === this.adminUsername) {
-            return {
-                username: this.adminUsername,
-                realName: '系統管理員',
-                phoneNumber: '0912345678',
-                role: 'admin'
-            };
-        }
-        
-        const user = this.users.find(u => u.username === username);
-        if (user) {
-            return user;
-        }
-        
-        return null;
-    }
-
-    // 處理快速登入
-    handleQuickLogin(e) {
-        // 快速登入 UI 已移除，保留函數避免舊呼叫點造成錯誤
-        return this.handleSimpleLogin(e);
-    }
-
-    // 處理登入
-    handleLogin(e) {
-        // 舊完整登入 UI 已移除，保留函數避免舊呼叫點造成錯誤
-        return this.handleSimpleLogin(e);
-    }
-
-    // 儲存使用者資訊
-    saveUserInfo() {
-        if (!this.currentUser) return;
-
-        const existingUserIndex = this.users.findIndex(u => u.username === this.currentUser.username);
-        
-        const userInfo = {
-            username: this.currentUser.username,
-            realName: this.currentUser.realName,
-            phoneNumber: this.currentUser.phoneNumber,
-            role: this.currentUser.role,
-            lastLogin: new Date().toISOString()
-        };
-
-        if (existingUserIndex >= 0) {
-            // 更新現有使用者資訊
-            this.users[existingUserIndex] = { ...this.users[existingUserIndex], ...userInfo };
-        } else {
-            // 新增使用者
-            this.users.push(userInfo);
-        }
+        this.showToast(`歡迎 ${username}！`, 'success');
     }
 
     // 登出
@@ -2967,10 +1048,7 @@ class LibrarySystem {
         const logoutBtn = document.getElementById('logout-btn');
 
         if (this.currentUser) {
-            const isAdmin = this.isAdminUser();
-            currentUserSpan.textContent = isAdmin
-                ? `${this.currentUser.username} (管理員)`
-                : `${this.currentUser.username}`;
+            currentUserSpan.textContent = `${this.currentUser.username} (${this.getRoleName(this.currentUser.role)})`;
             loginBtn.style.display = 'none';
             logoutBtn.style.display = 'inline-flex';
         } else {
@@ -3087,7 +1165,6 @@ class LibrarySystem {
             const coverEl = document.getElementById('book-cover-url');
             const yearEl = document.getElementById('book-year');
             const copiesEl = document.getElementById('book-copies');
-            const typeEl = document.getElementById('book-type');
 
             if (!idEl || !titleEl || !yearEl || !copiesEl) {
                 this.showToast('新增失敗：表單欄位不存在，請重新整理頁面', 'error');
@@ -3100,7 +1177,6 @@ class LibrarySystem {
             const coverUrl = (coverEl?.value || '').trim();
             const year = parseInt(yearEl.value) || this.settings.defaultYear;
             const copies = parseInt(copiesEl.value) || this.settings.defaultCopies;
-            const type = (typeEl?.value || '').trim();
 
             // 驗證書碼格式（支援全形和半形字符）
             if (!/^[ABC]\d+$/.test(id)) {
@@ -3129,7 +1205,6 @@ class LibrarySystem {
                 year,
                 copies,
                 availableCopies: copies,
-                type,
                 isNew: true,
                 addedAt: Date.now()
             };
@@ -3429,7 +1504,7 @@ class LibrarySystem {
     }
 
     // 借閱書籍
-    async borrowBook(bookId, titleKey = null) {
+    borrowBook(bookId) {
         console.log('借閱按鈕被點擊，書碼:', bookId);
         console.log('當前使用者:', this.currentUser);
         
@@ -3443,49 +1518,20 @@ class LibrarySystem {
             return;
         }
 
-        let book = this.books.find(b => b.id === bookId);
+        const book = this.books.find(b => b.id === bookId);
         if (!book) {
             this.showToast('書籍不存在', 'error');
             return;
         }
 
-        // 若從合併書卡觸發，改以書名彙總所有書碼/可借數量
-        if (titleKey) {
-            const normalizedTitle = this.normalizeTitle(book.title);
-            if (normalizedTitle === titleKey) {
-                const candidates = this.books.filter(b => this.normalizeTitle(b.title) === titleKey);
-                const mergedBookIds = candidates.map(b => b.id);
-                const mergedAvailable = candidates.reduce((sum, b) => sum + (parseInt(b.availableCopies, 10) || 0), 0);
-                const mergedCopies = candidates.reduce((sum, b) => sum + (parseInt(b.copies, 10) || 0), 0);
-
-                book = {
-                    ...book,
-                    bookIds: mergedBookIds,
-                    copies: mergedCopies || mergedBookIds.length || 1,
-                    availableCopies: mergedAvailable
-                };
-            }
-        }
-        if (!book) {
-            this.showToast('書籍不存在', 'error');
-            return;
-        }
-
-        if ((parseInt(book.availableCopies, 10) || 0) <= 0) {
+        if (book.availableCopies <= 0) {
             this.showToast('此書籍已全部借出', 'error');
             return;
         }
 
-        const copyId = await this.chooseCopyIdForBorrow(book);
-        if (!copyId) {
-            this.showToast('請選擇要借的書碼', 'warning');
-            return;
-        }
-
         // 允許同一使用者借多本（若館藏有多本），但最多不超過該書總冊數
-        const groupBookId = bookId;
         const userBorrowedCount = this.borrowedBooks.filter(
-            b => b.bookId === groupBookId && b.userId === this.currentUser.username && !b.returnedAt
+            b => b.bookId === bookId && b.userId === this.currentUser.username && !b.returnedAt
         ).length;
         if (userBorrowedCount >= (book.copies || 1)) {
             this.showToast('您已借滿此書所有冊數', 'error');
@@ -3493,16 +1539,11 @@ class LibrarySystem {
         }
 
         const borrowDate = new Date();
-        
-        // 檢查使用者是否有個人化的借閱時間設定
-        const userLoanSetting = this.getUserLoanSetting(this.currentUser.username);
-        const loanDays = userLoanSetting ? userLoanSetting.days : this.settings.loanDays;
-        const dueDate = new Date(borrowDate.getTime() + loanDays * 24 * 60 * 60 * 1000);
+        const dueDate = new Date(borrowDate.getTime() + this.settings.loanDays * 24 * 60 * 60 * 1000);
 
         const borrowRecord = {
             id: Date.now().toString(),
-            bookId: groupBookId,
-            copyId,
+            bookId,
             bookTitle: book.title,
             userId: this.currentUser.username,
             borrowDate: borrowDate.toISOString(),
@@ -3511,12 +1552,7 @@ class LibrarySystem {
         };
 
         this.borrowedBooks.push(borrowRecord);
-
-        const bookToDecrement = this.books.find(b => b.id === copyId) || this.books.find(b => b.id === groupBookId);
-        if (bookToDecrement) {
-            const cur = parseInt(bookToDecrement.availableCopies, 10) || 0;
-            bookToDecrement.availableCopies = Math.max(0, cur - 1);
-        }
+        book.availableCopies--;
 
         this.saveData();
         // 所有使用者：只要借閱成功就自動上傳到 Google Sheets
@@ -3542,12 +1578,10 @@ class LibrarySystem {
         }
 
         borrowRecord.returnedAt = new Date().toISOString();
-        // 更新書籍可借數量（優先依 copyId 回補到正確書碼）
-        const targetId = borrowRecord.copyId || borrowRecord.bookId;
-        const book = this.books.find(b => b.id === targetId) || this.books.find(b => b.id === borrowRecord.bookId);
+        
+        const book = this.books.find(b => b.id === borrowRecord.bookId);
         if (book) {
-            const cur = parseInt(book.availableCopies, 10) || 0;
-            book.availableCopies = cur + 1;
+            book.availableCopies++;
         }
 
         this.saveData();
@@ -3872,7 +1906,6 @@ class LibrarySystem {
     createBookCard(book) {
         // 判斷是否為合併書籍
         const isMerged = book.mergedBooks && book.mergedBooks.length > 1;
-        const titleKey = this.normalizeTitle(book.title);
 
         // 新增書籍記號（7天內視為新書）
         const addedAt = Number(book.addedAt) || 0;
@@ -3929,7 +1962,6 @@ class LibrarySystem {
                     <div class="book-header">
                         <span class="book-id">${bookIdsDisplay}</span>
                         <span class="book-genre">${book.genre}</span>
-                        ${book.type ? `<span class="book-type">${book.type}</span>` : ''}
                     </div>
                     <div class="book-title">${book.title}</div>
                     ${book.author ? `<div class="book-info-item"><i class=\"fas fa-pen-nib\"></i><span>${book.author}</span></div>` : ''}
@@ -3955,13 +1987,11 @@ class LibrarySystem {
                     </div>
                     <div class="book-actions">
                         ${canBorrow ? 
-                            (isMerged
-                                ? `<button class="btn btn-primary btn-small" onclick="library.borrowBook('${book.id}', '${titleKey}')">`
-                                : `<button class="btn btn-primary btn-small" onclick="library.borrowBook('${book.id}')">`) +
-                                `<i class="fas fa-book-reader"></i> ${userBorrowedCount > 0 ? '再借' : '借閱'}
+                            `<button class="btn btn-primary btn-small" onclick="library.borrowBook('${book.id}')">
+                                <i class="fas fa-book-reader"></i> ${userBorrowedCount > 0 ? '再借' : '借閱'}
                             </button>` : 
                             `<button class="btn btn-outline btn-small" disabled>
-                                <i class="fas fa-ban"></i> 不可借
+                                <i class="fas fa-ban"></i> 無法借閱
                             </button>`
                         }
                         ${canManageBooks ? `
@@ -3995,7 +2025,6 @@ class LibrarySystem {
         const coverInput = document.getElementById('edit-book-cover-url');
         const yearInput = document.getElementById('edit-book-year');
         const copiesInput = document.getElementById('edit-book-copies');
-        const typeInput = document.getElementById('edit-book-type');
 
         if (originalIdInput) originalIdInput.value = book.id;
         if (idInput) idInput.value = book.id;
@@ -4004,7 +2033,6 @@ class LibrarySystem {
         if (coverInput) coverInput.value = book.coverUrl || '';
         if (yearInput) yearInput.value = book.year || this.settings.defaultYear;
         if (copiesInput) copiesInput.value = book.copies || 1;
-        if (typeInput) typeInput.value = book.type || '';
 
         if (modal) modal.style.display = 'block';
 
@@ -4017,13 +2045,19 @@ class LibrarySystem {
         if (!bookTitle || bookTitle.trim() === '') return;
 
         try {
+            // 使用 Google Books API 搜尋
             const query = encodeURIComponent(bookTitle.trim());
-            const apiUrl = `https://openlibrary.org/search.json?q=${query}&limit=1&language=chi`;
+            const apiUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1&langRestrict=zh`;
 
-            const data = await this.fetchJsonQueued(apiUrl);
-            if (!data.docs || data.docs.length === 0) return;
+            const response = await fetch(apiUrl);
+            if (!response.ok) return;
 
-            const doc = data.docs[0];
+            const data = await response.json();
+            
+            if (!data.items || data.items.length === 0) return;
+
+            const book = data.items[0];
+            const info = book.volumeInfo;
 
             // 檢查是否需要更新現有資料
             const authorInput = document.getElementById('edit-book-author');
@@ -4034,23 +2068,29 @@ class LibrarySystem {
             let updateMessage = '找到書籍資訊：';
 
             // 更新作者（如果目前為空）
-            const authors = Array.isArray(doc.author_name) ? doc.author_name : [];
-            if (authorInput && (!authorInput.value || authorInput.value.trim() === '') && authors.length > 0) {
-                authorInput.value = authors.join(', ');
+            if (authorInput && (!authorInput.value || authorInput.value.trim() === '') && info.authors) {
+                authorInput.value = info.authors.join(', ');
                 hasUpdates = true;
                 updateMessage += ' 作者已更新';
             }
 
             // 更新封面（如果目前為空）
-            if (coverInput && (!coverInput.value || coverInput.value.trim() === '') && doc.cover_i) {
-                coverInput.value = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+            if (coverInput && (!coverInput.value || coverInput.value.trim() === '') && info.imageLinks) {
+                const coverUrl = info.imageLinks.extraLarge || 
+                                info.imageLinks.large || 
+                                info.imageLinks.medium || 
+                                info.imageLinks.thumbnail || 
+                                info.imageLinks.smallThumbnail;
+                if (coverUrl) {
+                    coverInput.value = coverUrl;
                     hasUpdates = true;
                     updateMessage += ' 封面已更新';
+                }
             }
 
             // 更新年份（如果目前為預設值且找到更準確的年份）
-            if (yearInput && doc.first_publish_year) {
-                const publishedYear = String(doc.first_publish_year);
+            if (yearInput && info.publishedDate) {
+                const publishedYear = info.publishedDate.substring(0, 4);
                 const currentYear = yearInput.value;
                 const defaultYear = this.settings.defaultYear;
                 
@@ -4082,7 +2122,6 @@ class LibrarySystem {
         const coverUrl = (document.getElementById('edit-book-cover-url')?.value || '').trim();
         const year = parseInt(document.getElementById('edit-book-year')?.value) || this.settings.defaultYear;
         const newCopies = parseInt(document.getElementById('edit-book-copies')?.value) || 1;
-        const type = (document.getElementById('edit-book-type')?.value || '').trim();
 
         if (!originalId) {
             this.showToast('編輯失敗：缺少書碼', 'error');
@@ -4111,7 +2150,6 @@ class LibrarySystem {
         book.year = year;
         book.copies = newCopies;
         book.availableCopies = newCopies - borrowedCount;
-        book.type = type;
 
         if (Array.isArray(book.bookIds) && !book.bookIds.includes(book.id)) {
             book.bookIds.unshift(book.id);
@@ -4142,21 +2180,27 @@ class LibrarySystem {
 
         try {
             const q = [];
-            if (title) q.push(title);
-            if (author) q.push(author);
-            const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q.join(' '))}&limit=5&language=chi`;
+            if (title) q.push(`intitle:${title}`);
+            if (author) q.push(`inauthor:${author}`);
+            const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q.join('+'))}&maxResults=5`;
 
-            const data = await this.fetchJsonQueued(url);
-            const doc = data?.docs?.[0];
-            if (!doc) {
+            // 使用 API 隊列機制
+            const data = await this.enqueueApiRequest(async () => {
+                return await this.fetchWithRetry(url);
+            });
+            
+            const item = data?.items?.[0];
+            const info = item?.volumeInfo;
+            if (!info) {
                 this.showToast('找不到符合的書籍資料', 'warning');
                 return;
             }
 
-            const foundTitle = (doc.title || '').trim();
-            const foundAuthors = Array.isArray(doc.author_name) ? doc.author_name.join('、') : '';
-            const year = doc.first_publish_year ? parseInt(String(doc.first_publish_year), 10) : NaN;
-            const coverUrl = doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : '';
+            const foundTitle = (info.title || '').trim();
+            const foundAuthors = Array.isArray(info.authors) ? info.authors.join('、') : '';
+            const published = (info.publishedDate || '').trim();
+            const year = published ? parseInt(published.slice(0, 4), 10) : NaN;
+            const coverUrl = (info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || '').trim();
 
             if (titleInput && foundTitle && !titleInput.value.trim()) titleInput.value = foundTitle;
             if (authorInput && foundAuthors) authorInput.value = foundAuthors;
@@ -4205,30 +2249,6 @@ class LibrarySystem {
         }
         
         this.apiRequestInProgress = false;
-    }
-
-    async fetchJsonQueued(url, options = {}) {
-        const key = `${options?.method || 'GET'} ${url}`;
-        const now = Date.now();
-
-        const cached = this.apiCache.get(key);
-        if (cached && now - cached.t < this.apiCacheTtlMs) {
-            return cached.data;
-        }
-
-        const inflight = this.apiInFlight.get(key);
-        if (inflight) return inflight;
-
-        const promise = this.enqueueApiRequest(async () => {
-            const data = await this.fetchWithRetry(url, options);
-            this.apiCache.set(key, { t: Date.now(), data });
-            return data;
-        }).finally(() => {
-            this.apiInFlight.delete(key);
-        });
-
-        this.apiInFlight.set(key, promise);
-        return promise;
     }
 
     // 帶重試與指數退避的 fetch
@@ -4317,21 +2337,21 @@ class LibrarySystem {
 
         // 根據使用者角色決定顯示範圍
         let borrowedBooks;
-        if (this.isAdminUser()) {
-            // 只有管理員可以看到所有借閱記錄
+        if (this.currentUser.role === 'staff') {
+            // 老師/館員可以看到所有借閱記錄
             borrowedBooks = this.borrowedBooks.filter(b => !b.returnedAt);
         } else {
-            // 其他使用者（包括老師/館員、學生、訪客）只能看到自己的借閱記錄
+            // 學生和訪客只能看到自己的借閱記錄
             borrowedBooks = this.borrowedBooks.filter(
                 b => b.userId === this.currentUser.username && !b.returnedAt
             );
         }
 
         if (borrowedBooks.length === 0) {
-            const message = this.isAdminUser() 
+            const message = this.currentUser.role === 'staff' 
                 ? '目前沒有借閱記錄' 
                 : '您目前沒有借閱記錄';
-            const subMessage = this.isAdminUser()
+            const subMessage = this.currentUser.role === 'staff'
                 ? '所有書籍都已歸還'
                 : '快去借閱您喜歡的書籍吧！';
                 
@@ -4354,17 +2374,13 @@ class LibrarySystem {
         const dueDate = new Date(record.dueDate);
         const now = new Date();
         const daysLeft = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-        
-        // 檢查是否為管理員
-        const isAdmin = this.isAdminUser();
-        
+
         return `
             <div class="borrowed-item">
                 <div class="borrowed-info">
-                    <div class="book-title">${record.bookTitle}</div>
-                    <div class="book-id">書碼：${record.copyId || record.bookId}</div>
+                    <div class="borrowed-title">${record.bookTitle}</div>
                     <div class="borrowed-details">
-                        ${isAdmin ? `<div><i class="fas fa-user"></i> 借閱者：${record.userId}</div>` : ''}
+                        <div><i class="fas fa-user"></i> 借閱者：${record.userId}</div>
                         <div><i class="fas fa-calendar-plus"></i> 借閱日期：${borrowDate.toLocaleDateString()}</div>
                         <div><i class="fas fa-calendar-check"></i> 應還日期：${dueDate.toLocaleDateString()}</div>
                         <div>
@@ -4373,11 +2389,6 @@ class LibrarySystem {
                     </div>
                 </div>
                 <div class="borrowed-actions">
-                    ${isAdmin ? `
-                        <button class="btn btn-info btn-small" onclick="library.showEditDueDateModal('${record.id}')" title="修改應還日期">
-                            <i class="fas fa-calendar-edit"></i> 修改日期
-                        </button>
-                    ` : ''}
                     <button class="btn btn-success btn-small" onclick="library.returnBook('${record.id}')">
                         <i class="fas fa-undo"></i> 歸還
                     </button>
@@ -4389,7 +2400,11 @@ class LibrarySystem {
     // 更新統計資訊
     updateStats() {
         const totalBooks = this.books.reduce((sum, book) => sum + book.copies, 0);
-        const uniqueTitles = this.books.length;
+        const uniqueTitles = new Set(
+            this.books
+                .map(book => (book?.title ?? '').trim().replace(/\s+/g, ' ').toLowerCase())
+                .filter(Boolean)
+        ).size;
         const availableBooks = this.books.reduce((sum, book) => sum + book.availableCopies, 0);
         const borrowedBooks = this.borrowedBooks.filter(b => !b.returnedAt).length;
 
@@ -4752,9 +2767,9 @@ class LibrarySystem {
             return;
         }
 
-        // 依角色決定匯出內容（與畫面一致：管理員匯出全部未歸還，其餘僅匯出自己的未歸還）
+        // 依角色決定匯出內容（與畫面一致：staff 匯出全部未歸還，其餘僅匯出自己的未歸還）
         let records;
-        if (this.isAdminUser()) {
+        if (this.currentUser.role === 'staff') {
             records = this.borrowedBooks.filter(b => !b.returnedAt);
         } else {
             records = this.borrowedBooks.filter(b => b.userId === this.currentUser.username && !b.returnedAt);
@@ -4765,8 +2780,8 @@ class LibrarySystem {
             return;
         }
 
-        // 管理員：單一檔案、每位借閱者一個工作表
-        if (this.isAdminUser()) {
+        // 老師/館員：單一檔案、每位借閱者一個工作表
+        if (this.currentUser.role === 'staff') {
             const grouped = new Map();
             records.forEach(r => {
                 if (!grouped.has(r.userId)) grouped.set(r.userId, []);
@@ -5073,11 +3088,21 @@ class LibrarySystem {
     async searchBookAuthor(title) {
         try {
             const query = encodeURIComponent(title);
-
-            const apiUrl = `https://openlibrary.org/search.json?q=${query}&limit=1&language=chi`;
-            const data = await this.fetchJsonQueued(apiUrl);
-            const authors = Array.isArray(data?.docs?.[0]?.author_name) ? data.docs[0].author_name : [];
-            if (authors.length > 0) return authors.join(', ');
+            const apiUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1&langRestrict=zh`;
+            
+            const response = await fetch(apiUrl);
+            if (!response.ok) return null;
+            
+            const data = await response.json();
+            
+            if (data.items && data.items.length > 0) {
+                const book = data.items[0];
+                const authors = book.volumeInfo.authors;
+                
+                if (authors && authors.length > 0) {
+                    return authors.join(', ');
+                }
+            }
             
             return null;
         } catch (error) {
@@ -5095,10 +3120,27 @@ class LibrarySystem {
                 query += ` ${author}`;
             }
 
-            const apiUrl = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=1&language=chi`;
-            const data = await this.fetchJsonQueued(apiUrl);
-            const coverId = data?.docs?.[0]?.cover_i;
-            if (coverId) return `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`;
+            // 使用 Google Books API
+            const apiUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1&langRestrict=zh`;
+            
+            const response = await fetch(apiUrl);
+            if (!response.ok) return null;
+            
+            const data = await response.json();
+            
+            if (data.items && data.items.length > 0) {
+                const book = data.items[0];
+                const imageLinks = book.volumeInfo.imageLinks;
+                
+                if (imageLinks) {
+                    // 優先使用大圖，如果沒有則使用中圖或縮圖
+                    return imageLinks.extraLarge || 
+                           imageLinks.large || 
+                           imageLinks.medium || 
+                           imageLinks.thumbnail || 
+                           imageLinks.smallThumbnail;
+                }
+            }
             
             return null;
         } catch (error) {
@@ -5197,11 +3239,30 @@ class LibrarySystem {
                 return;
             }
 
-            results = await this.searchFromOpenLibrary(searchTerm);
-
-            if (results.length < 8) {
-                this.showManualSearchOptions(searchTerm, results);
+            // 先嘗試 Google Books API
+            results = await this.searchFromGoogleBooks(searchTerm);
+            
+            // 如果 Google Books 沒有結果，直接提供書庫選擇
+            if (results.length === 0) {
+                this.showLoadingIndicator(false);
+                this.showToast('Google Books 沒有找到資料，請選擇其他書庫', 'info');
+                this.showManualSearchOptions(searchTerm, []);
                 return;
+            }
+            
+            // 如果 Google Books 結果不足，嘗試 Open Library
+            if (results.length < 3) {
+                this.showToast('正在擴大搜尋範圍...', 'info');
+                
+                // 嘗試 Open Library
+                const openLibraryResults = await this.searchFromOpenLibrary(searchTerm);
+                results = [...results, ...openLibraryResults];
+                
+                // 如果結果仍然不足，提供手動搜尋選項
+                if (results.length < 8) {
+                    this.showManualSearchOptions(searchTerm, results);
+                    return;
+                }
             }
 
             if (results.length === 0) {
