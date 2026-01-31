@@ -222,8 +222,14 @@ class LibrarySystem {
         document.getElementById('location-map-btn').addEventListener('click', () => this.showLocationMap());
 
         // 登入/登出
-        document.getElementById('login-btn').addEventListener('click', () => this.showLoginModal());
-        document.getElementById('logout-btn').addEventListener('click', () => this.logout());
+        const loginBtn = document.getElementById('login-btn');
+        if (loginBtn) {
+            loginBtn.addEventListener('click', () => this.showLoginModal());
+        }
+        const logoutBtn = document.getElementById('logout-btn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => this.logout());
+        }
 
         // 借閱者清單
         const borrowersListBtn = document.getElementById('borrowers-list-btn');
@@ -253,7 +259,10 @@ class LibrarySystem {
         this.setupModalListeners();
 
         // 表單提交
-        document.getElementById('login-form').addEventListener('submit', (e) => this.handleSimpleLogin(e));
+        const loginForm = document.getElementById('login-form');
+        if (loginForm) {
+            loginForm.addEventListener('submit', (e) => this.handleSimpleLogin(e));
+        }
 
         // 註冊流程已停用：僅支援輸入帳號登入
         
