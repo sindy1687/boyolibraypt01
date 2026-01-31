@@ -24,6 +24,9 @@ class LibrarySystem {
         };
         this.apiRequestQueue = [];
         this.apiRequestInProgress = false;
+        this.apiCache = new Map();
+        this.apiInFlight = new Map();
+        this.apiCacheTtlMs = 10 * 60 * 1000;
         
         // 搜尋狀態控制
         this.searchState = {
@@ -52,6 +55,114 @@ class LibrarySystem {
         this.lastUpdateTime = null;
         
         this.init();
+    }
+
+    getAvailableCopyIds(book) {
+        const allCopyIds = Array.isArray(book?.bookIds) && book.bookIds.length > 0
+            ? [...new Set(book.bookIds.map(id => String(id).trim()).filter(Boolean))]
+            : [book.id];
+
+        const activeRecords = this.borrowedBooks.filter(b => b.bookId === book.id && !b.returnedAt);
+        const usedCopyIds = new Set(
+            activeRecords
+                .map(r => (r.copyId || '').toString().trim())
+                .filter(Boolean)
+        );
+
+        let available = allCopyIds.filter(id => !usedCopyIds.has(id));
+
+        const unknownOccupyCount = activeRecords.filter(r => !r.copyId).length;
+        if (unknownOccupyCount > 0 && available.length > 0) {
+            available = available.slice(Math.min(unknownOccupyCount, available.length));
+        }
+
+        return available;
+    }
+
+    showChooseCopyModal(book, availableCopyIds) {
+        const modal = document.getElementById('choose-copy-modal');
+        const info = document.getElementById('choose-copy-book-info');
+        const list = document.getElementById('choose-copy-list');
+        const selectedInput = document.getElementById('choose-copy-selected');
+        const cancelBtn = document.getElementById('choose-copy-cancel');
+        const confirmBtn = document.getElementById('choose-copy-confirm');
+
+        if (!modal || !info || !list || !selectedInput || !cancelBtn || !confirmBtn) {
+            // 若 UI 元素不存在，回退為不選擇
+            return Promise.resolve(null);
+        }
+
+        // 清空與初始化
+        selectedInput.value = '';
+        info.innerHTML = `
+            <div><strong>書名：</strong>${book?.title || ''}</div>
+            <div><strong>可借數量：</strong>${availableCopyIds.length}</div>
+        `;
+        list.innerHTML = availableCopyIds.map(id => {
+            const safe = String(id);
+            return `<button type="button" class="btn btn-secondary" data-copy-id="${safe}">${safe}</button>`;
+        }).join('');
+
+        // 一次性的事件處理
+        return new Promise(resolve => {
+            const cleanup = () => {
+                list.removeEventListener('click', onPick);
+                cancelBtn.removeEventListener('click', onCancel);
+                confirmBtn.removeEventListener('click', onConfirm);
+                modal.removeEventListener('closeCopyPicker', onCancel);
+            };
+
+            const close = () => {
+                modal.style.display = 'none';
+            };
+
+            const onPick = (e) => {
+                const btn = e.target.closest('[data-copy-id]');
+                if (!btn) return;
+                const id = btn.getAttribute('data-copy-id');
+                selectedInput.value = id;
+                // 樣式：標示選中
+                list.querySelectorAll('[data-copy-id]').forEach(b => b.classList.remove('btn-primary'));
+                list.querySelectorAll('[data-copy-id]').forEach(b => b.classList.add('btn-secondary'));
+                btn.classList.remove('btn-secondary');
+                btn.classList.add('btn-primary');
+            };
+
+            const onCancel = () => {
+                cleanup();
+                close();
+                resolve(null);
+            };
+
+            const onConfirm = () => {
+                const selected = (selectedInput.value || '').trim();
+                if (!selected || !availableCopyIds.includes(selected)) {
+                    this.showToast('請先選擇要借的書碼', 'warning');
+                    return;
+                }
+                cleanup();
+                close();
+                resolve(selected);
+            };
+
+            list.addEventListener('click', onPick);
+            cancelBtn.addEventListener('click', onCancel);
+            confirmBtn.addEventListener('click', onConfirm);
+
+            // 若使用者按 X 或點背景關閉 modal，setupModalListeners 只會把它隱藏
+            // 這裡用自訂事件讓外部可通知取消
+            modal.addEventListener('closeCopyPicker', onCancel);
+
+            modal.style.display = 'block';
+        });
+    }
+
+    async chooseCopyIdForBorrow(book) {
+        const availableCopyIds = this.getAvailableCopyIds(book);
+        if (availableCopyIds.length <= 0) return null;
+        if (availableCopyIds.length === 1) return availableCopyIds[0];
+
+        return await this.showChooseCopyModal(book, availableCopyIds);
     }
 
     // 初始化系統
@@ -456,12 +567,18 @@ class LibrarySystem {
         closes.forEach(close => {
             close.addEventListener('click', (e) => {
                 const modal = e.target.closest('.modal');
+                if (modal && modal.id === 'choose-copy-modal') {
+                    modal.dispatchEvent(new Event('closeCopyPicker'));
+                }
                 modal.style.display = 'none';
             });
         });
 
         window.addEventListener('click', (e) => {
             if (e.target.classList.contains('modal')) {
+                if (e.target && e.target.id === 'choose-copy-modal') {
+                    e.target.dispatchEvent(new Event('closeCopyPicker'));
+                }
                 e.target.style.display = 'none';
             }
         });
@@ -490,44 +607,6 @@ class LibrarySystem {
         if (!this.settings.googleWebAppUrl) {
             this.settings.googleWebAppUrl = this.defaultGoogleWebAppUrl;
             localStorage.setItem('lib_settings_v1', JSON.stringify(this.settings));
-        }
-    }
-
-    updateBorrowedToggleIcon() {
-        const icon = document.querySelector('#borrowed-toggle-btn i');
-        if (!icon) return;
-
-        const panel = document.querySelector('.borrowed-section');
-        if (!panel) return;
-
-        const isOpen = panel.classList.contains('open');
-        icon.className = isOpen ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
-    }
-
-    // 設定模態框事件
-    setupModalListeners() {
-        const modals = document.querySelectorAll('.modal');
-        const closes = document.querySelectorAll('.close');
-
-        closes.forEach(close => {
-            close.addEventListener('click', (e) => {
-                const modal = e.target.closest('.modal');
-                modal.style.display = 'none';
-            });
-        });
-
-        window.addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal')) {
-                e.target.style.display = 'none';
-            }
-        });
-    }
-
-    // 顯示位置圖
-    showLocationMap() {
-        const modal = document.getElementById('location-map-modal');
-        if (modal) {
-            modal.style.display = 'block';
         }
     }
 
@@ -3335,7 +3414,7 @@ class LibrarySystem {
     }
 
     // 借閱書籍
-    borrowBook(bookId) {
+    async borrowBook(bookId) {
         console.log('借閱按鈕被點擊，書碼:', bookId);
         console.log('當前使用者:', this.currentUser);
         
@@ -3360,6 +3439,12 @@ class LibrarySystem {
             return;
         }
 
+        const copyId = await this.chooseCopyIdForBorrow(book);
+        if (!copyId) {
+            this.showToast('請選擇要借的書碼', 'warning');
+            return;
+        }
+
         // 允許同一使用者借多本（若館藏有多本），但最多不超過該書總冊數
         const userBorrowedCount = this.borrowedBooks.filter(
             b => b.bookId === bookId && b.userId === this.currentUser.username && !b.returnedAt
@@ -3379,6 +3464,7 @@ class LibrarySystem {
         const borrowRecord = {
             id: Date.now().toString(),
             bookId,
+            copyId,
             bookTitle: book.title,
             userId: this.currentUser.username,
             borrowDate: borrowDate.toISOString(),
@@ -3880,19 +3966,13 @@ class LibrarySystem {
         if (!bookTitle || bookTitle.trim() === '') return;
 
         try {
-            // 使用 Google Books API 搜尋
             const query = encodeURIComponent(bookTitle.trim());
-            const apiUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1&langRestrict=zh`;
+            const apiUrl = `https://openlibrary.org/search.json?q=${query}&limit=1&language=chi`;
 
-            const response = await fetch(apiUrl);
-            if (!response.ok) return;
+            const data = await this.fetchJsonQueued(apiUrl);
+            if (!data.docs || data.docs.length === 0) return;
 
-            const data = await response.json();
-            
-            if (!data.items || data.items.length === 0) return;
-
-            const book = data.items[0];
-            const info = book.volumeInfo;
+            const doc = data.docs[0];
 
             // 檢查是否需要更新現有資料
             const authorInput = document.getElementById('edit-book-author');
@@ -3903,29 +3983,23 @@ class LibrarySystem {
             let updateMessage = '找到書籍資訊：';
 
             // 更新作者（如果目前為空）
-            if (authorInput && (!authorInput.value || authorInput.value.trim() === '') && info.authors) {
-                authorInput.value = info.authors.join(', ');
+            const authors = Array.isArray(doc.author_name) ? doc.author_name : [];
+            if (authorInput && (!authorInput.value || authorInput.value.trim() === '') && authors.length > 0) {
+                authorInput.value = authors.join(', ');
                 hasUpdates = true;
                 updateMessage += ' 作者已更新';
             }
 
             // 更新封面（如果目前為空）
-            if (coverInput && (!coverInput.value || coverInput.value.trim() === '') && info.imageLinks) {
-                const coverUrl = info.imageLinks.extraLarge || 
-                                info.imageLinks.large || 
-                                info.imageLinks.medium || 
-                                info.imageLinks.thumbnail || 
-                                info.imageLinks.smallThumbnail;
-                if (coverUrl) {
-                    coverInput.value = coverUrl;
+            if (coverInput && (!coverInput.value || coverInput.value.trim() === '') && doc.cover_i) {
+                coverInput.value = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
                     hasUpdates = true;
                     updateMessage += ' 封面已更新';
-                }
             }
 
             // 更新年份（如果目前為預設值且找到更準確的年份）
-            if (yearInput && info.publishedDate) {
-                const publishedYear = info.publishedDate.substring(0, 4);
+            if (yearInput && doc.first_publish_year) {
+                const publishedYear = String(doc.first_publish_year);
                 const currentYear = yearInput.value;
                 const defaultYear = this.settings.defaultYear;
                 
@@ -4015,27 +4089,21 @@ class LibrarySystem {
 
         try {
             const q = [];
-            if (title) q.push(`intitle:${title}`);
-            if (author) q.push(`inauthor:${author}`);
-            const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q.join('+'))}&maxResults=5`;
+            if (title) q.push(title);
+            if (author) q.push(author);
+            const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q.join(' '))}&limit=5&language=chi`;
 
-            // 使用 API 隊列機制
-            const data = await this.enqueueApiRequest(async () => {
-                return await this.fetchWithRetry(url);
-            });
-            
-            const item = data?.items?.[0];
-            const info = item?.volumeInfo;
-            if (!info) {
+            const data = await this.fetchJsonQueued(url);
+            const doc = data?.docs?.[0];
+            if (!doc) {
                 this.showToast('找不到符合的書籍資料', 'warning');
                 return;
             }
 
-            const foundTitle = (info.title || '').trim();
-            const foundAuthors = Array.isArray(info.authors) ? info.authors.join('、') : '';
-            const published = (info.publishedDate || '').trim();
-            const year = published ? parseInt(published.slice(0, 4), 10) : NaN;
-            const coverUrl = (info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || '').trim();
+            const foundTitle = (doc.title || '').trim();
+            const foundAuthors = Array.isArray(doc.author_name) ? doc.author_name.join('、') : '';
+            const year = doc.first_publish_year ? parseInt(String(doc.first_publish_year), 10) : NaN;
+            const coverUrl = doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : '';
 
             if (titleInput && foundTitle && !titleInput.value.trim()) titleInput.value = foundTitle;
             if (authorInput && foundAuthors) authorInput.value = foundAuthors;
@@ -4084,6 +4152,30 @@ class LibrarySystem {
         }
         
         this.apiRequestInProgress = false;
+    }
+
+    async fetchJsonQueued(url, options = {}) {
+        const key = `${options?.method || 'GET'} ${url}`;
+        const now = Date.now();
+
+        const cached = this.apiCache.get(key);
+        if (cached && now - cached.t < this.apiCacheTtlMs) {
+            return cached.data;
+        }
+
+        const inflight = this.apiInFlight.get(key);
+        if (inflight) return inflight;
+
+        const promise = this.enqueueApiRequest(async () => {
+            const data = await this.fetchWithRetry(url, options);
+            this.apiCache.set(key, { t: Date.now(), data });
+            return data;
+        }).finally(() => {
+            this.apiInFlight.delete(key);
+        });
+
+        this.apiInFlight.set(key, promise);
+        return promise;
     }
 
     // 帶重試與指數退避的 fetch
@@ -4217,7 +4309,7 @@ class LibrarySystem {
             <div class="borrowed-item">
                 <div class="borrowed-info">
                     <div class="book-title">${record.bookTitle}</div>
-                    <div class="book-id">書碼：${record.bookId}</div>
+                    <div class="book-id">書碼：${record.copyId || record.bookId}</div>
                     <div class="borrowed-details">
                         ${isAdmin ? `<div><i class="fas fa-user"></i> 借閱者：${record.userId}</div>` : ''}
                         <div><i class="fas fa-calendar-plus"></i> 借閱日期：${borrowDate.toLocaleDateString()}</div>
@@ -4928,21 +5020,11 @@ class LibrarySystem {
     async searchBookAuthor(title) {
         try {
             const query = encodeURIComponent(title);
-            const apiUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1&langRestrict=zh`;
-            
-            const response = await fetch(apiUrl);
-            if (!response.ok) return null;
-            
-            const data = await response.json();
-            
-            if (data.items && data.items.length > 0) {
-                const book = data.items[0];
-                const authors = book.volumeInfo.authors;
-                
-                if (authors && authors.length > 0) {
-                    return authors.join(', ');
-                }
-            }
+
+            const apiUrl = `https://openlibrary.org/search.json?q=${query}&limit=1&language=chi`;
+            const data = await this.fetchJsonQueued(apiUrl);
+            const authors = Array.isArray(data?.docs?.[0]?.author_name) ? data.docs[0].author_name : [];
+            if (authors.length > 0) return authors.join(', ');
             
             return null;
         } catch (error) {
@@ -4960,27 +5042,10 @@ class LibrarySystem {
                 query += ` ${author}`;
             }
 
-            // 使用 Google Books API
-            const apiUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1&langRestrict=zh`;
-            
-            const response = await fetch(apiUrl);
-            if (!response.ok) return null;
-            
-            const data = await response.json();
-            
-            if (data.items && data.items.length > 0) {
-                const book = data.items[0];
-                const imageLinks = book.volumeInfo.imageLinks;
-                
-                if (imageLinks) {
-                    // 優先使用大圖，如果沒有則使用中圖或縮圖
-                    return imageLinks.extraLarge || 
-                           imageLinks.large || 
-                           imageLinks.medium || 
-                           imageLinks.thumbnail || 
-                           imageLinks.smallThumbnail;
-                }
-            }
+            const apiUrl = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=1&language=chi`;
+            const data = await this.fetchJsonQueued(apiUrl);
+            const coverId = data?.docs?.[0]?.cover_i;
+            if (coverId) return `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`;
             
             return null;
         } catch (error) {
@@ -5079,30 +5144,11 @@ class LibrarySystem {
                 return;
             }
 
-            // 先嘗試 Google Books API
-            results = await this.searchFromGoogleBooks(searchTerm);
-            
-            // 如果 Google Books 沒有結果，直接提供書庫選擇
-            if (results.length === 0) {
-                this.showLoadingIndicator(false);
-                this.showToast('Google Books 沒有找到資料，請選擇其他書庫', 'info');
-                this.showManualSearchOptions(searchTerm, []);
+            results = await this.searchFromOpenLibrary(searchTerm);
+
+            if (results.length < 8) {
+                this.showManualSearchOptions(searchTerm, results);
                 return;
-            }
-            
-            // 如果 Google Books 結果不足，嘗試 Open Library
-            if (results.length < 3) {
-                this.showToast('正在擴大搜尋範圍...', 'info');
-                
-                // 嘗試 Open Library
-                const openLibraryResults = await this.searchFromOpenLibrary(searchTerm);
-                results = [...results, ...openLibraryResults];
-                
-                // 如果結果仍然不足，提供手動搜尋選項
-                if (results.length < 8) {
-                    this.showManualSearchOptions(searchTerm, results);
-                    return;
-                }
             }
 
             if (results.length === 0) {

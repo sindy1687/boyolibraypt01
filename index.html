@@ -1080,6 +1080,17 @@
                 </div>
                 
                 <div class="form-group">
+                    <label for="edit-borrow-date">
+                        <i class="fas fa-calendar-plus"></i> 新的借閱日期：
+                    </label>
+                    <input type="date" id="edit-borrow-date" required>
+                    <small class="form-help">
+                        <i class="fas fa-info-circle"></i>
+                        請選擇新的借閱日期
+                    </small>
+                </div>
+
+                <div class="form-group">
                     <label for="edit-due-date">
                         <i class="fas fa-calendar-check"></i> 新的應還日期：
                     </label>
@@ -1106,6 +1117,38 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- 選擇借閱書碼模態框 -->
+    <div id="choose-copy-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2><i class="fas fa-list-check"></i> 選擇要借的書碼</h2>
+            <input type="hidden" id="choose-copy-selected">
+
+            <div class="form-group">
+                <label>
+                    <i class="fas fa-book"></i> 書籍資訊：
+                </label>
+                <div id="choose-copy-book-info" style="padding: 10px; background: #f8f9fa; border-radius: 6px; margin-bottom: 15px;"></div>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <i class="fas fa-barcode"></i> 可借書碼：
+                </label>
+                <div id="choose-copy-list" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" id="choose-copy-cancel" class="btn btn-outline">
+                    <i class="fas fa-times"></i> 取消
+                </button>
+                <button type="button" id="choose-copy-confirm" class="btn btn-primary">
+                    <i class="fas fa-check"></i> 確認借閱
+                </button>
+            </div>
         </div>
     </div>
 
