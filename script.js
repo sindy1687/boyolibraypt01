@@ -1235,22 +1235,56 @@ class LibrarySystem {
 
     generateNextBookId(prefix) {
         const used = new Set();
+        const existingNumbers = [];
 
+        // 收集所有已使用的編號
         this.books.forEach(book => {
-            if (book?.id) used.add(String(book.id).toUpperCase());
+            if (book?.id) {
+                const idStr = String(book.id).toUpperCase();
+                if (idStr.startsWith(prefix)) {
+                    const numPart = idStr.substring(prefix.length);
+                    const num = parseInt(numPart, 10);
+                    if (!isNaN(num)) {
+                        used.add(idStr);
+                        existingNumbers.push(num);
+                    }
+                }
+            }
             if (Array.isArray(book?.bookIds)) {
                 book.bookIds.forEach(id => {
-                    if (id) used.add(String(id).toUpperCase());
+                    if (id) {
+                        const idStr = String(id).toUpperCase();
+                        if (idStr.startsWith(prefix)) {
+                            const numPart = idStr.substring(prefix.length);
+                            const num = parseInt(numPart, 10);
+                            if (!isNaN(num)) {
+                                used.add(idStr);
+                                existingNumbers.push(num);
+                            }
+                        }
+                    }
                 });
             }
         });
 
-        let next = 1;
-        while (true) {
-            const candidate = `${prefix}${String(next).padStart(4, '0')}`;
-            if (!used.has(candidate)) return candidate;
-            next++;
+        // 如果沒有任何書籍，從 C0001 開始
+        if (existingNumbers.length === 0) {
+            return `${prefix}0001`;
         }
+
+        // 找出最大編號
+        const maxNumber = Math.max(...existingNumbers);
+        
+        // 生成所有可能的編號（從1到最大編號+1）
+        for (let i = 1; i <= maxNumber + 1; i++) {
+            const candidate = `${prefix}${String(i).padStart(4, '0')}`;
+            if (!used.has(candidate)) {
+                return candidate;
+            }
+        }
+
+        // 如果都找不到，返回最大編號+1
+        return `${prefix}${String(maxNumber + 1).padStart(4, '0')}`;
     }
 
     hasBookId(id) {
@@ -1263,6 +1297,53 @@ class LibrarySystem {
             if (Array.isArray(book.bookIds) && book.bookIds.some(x => String(x || '').toUpperCase() === target)) return true;
             return false;
         });
+    }
+
+    // 根據書名查找相同書籍
+    findBookByTitle(title) {
+        if (!title || typeof title !== 'string') return null;
+        
+        const normalizedTitle = title.trim().toLowerCase();
+        
+        // 尋找第一個匹配的書籍（忽略大小寫和前後空白）
+        return this.books.find(book => {
+            if (!book || !book.title) return false;
+            return book.title.trim().toLowerCase() === normalizedTitle;
+        });
+    }
+
+    // 測試書籍編號生成邏輯
+    testBookIdGeneration() {
+        console.log('=== 測試書籍編號生成邏輯 ===');
+        
+        // 測試 C 前綴
+        const cResult = this.generateNextBookId('C');
+        console.log(`C 前綴測試結果: ${cResult}`);
+        
+        // 測試 A 前綴
+        const aResult = this.generateNextBookId('A');
+        console.log(`A 前綴測試結果: ${aResult}`);
+        
+        // 測試 B 前綴
+        const bResult = this.generateNextBookId('B');
+        console.log(`B 前綴測試結果: ${bResult}`);
+        
+        // 測試不存在的 D 前綴
+        const dResult = this.generateNextBookId('D');
+        console.log(`D 前綴測試結果: ${dResult}`);
+        
+        // 顯示結果給用戶
+        const results = `
+            測試結果：
+            C 前綴: ${cResult}
+            A 前綴: ${aResult}
+            B 前綴: ${bResult}
+            D 前綴: ${dResult}
+        `;
+        
+        this.showToast(results, 'info', 5000);
+        
+        return { cResult, aResult, bResult, dResult };
     }
 
     // 處理新增書籍
@@ -1304,6 +1385,26 @@ class LibrarySystem {
             if (!title) {
                 this.showToast('請輸入書名', 'error');
                 return;
+            }
+
+            // 檢查是否有相同書名的書籍，如果有則自動套用資料
+            const existingBook = this.findBookByTitle(title);
+            if (existingBook) {
+                // 自動套用重複書籍的資料
+                if (!author && existingBook.author) {
+                    author = existingBook.author;
+                    if (authorEl) authorEl.value = author;
+                }
+                if (!coverUrl && existingBook.coverUrl) {
+                    coverUrl = existingBook.coverUrl;
+                    if (coverEl) coverEl.value = coverUrl;
+                }
+                if (year === this.settings.defaultYear && existingBook.year) {
+                    year = existingBook.year;
+                    if (yearEl) yearEl.value = year;
+                }
+                
+                this.showToast(`偵測到相同書名，已自動套用書籍資料`, 'info');
             }
 
             const genre = this.getGenreFromId(id);
@@ -1394,7 +1495,7 @@ class LibrarySystem {
             });
         }
         
-        // 書名驗證
+        // 書名驗證與重複檢查
         if (!bookTitleInput.dataset.bound) {
             bookTitleInput.dataset.bound = '1';
             bookTitleInput.addEventListener('input', (e) => {
@@ -1406,6 +1507,37 @@ class LibrarySystem {
             } else {
                 e.target.style.borderColor = '#e2e8f0';
                 this.hideFieldError('book-title');
+                
+                // 檢查是否有相同書名的書籍
+                const existingBook = this.findBookByTitle(value);
+                if (existingBook) {
+                    // 顯示找到相同書籍的提示
+                    this.showFieldError('book-title', `找到相同書名，將自動套用作者、出版年份和封面資料`);
+                    
+                    // 自動填入作者（如果作者欄位為空）
+                    const authorEl = document.getElementById('book-author');
+                    if (authorEl && (!authorEl.value.trim() || authorEl.value.trim() === '')) {
+                        authorEl.value = existingBook.author || '';
+                    }
+                    
+                    // 自動填入出版年份（如果年份欄位為預設值）
+                    const yearEl = document.getElementById('book-year');
+                    if (yearEl && (!yearEl.value || parseInt(yearEl.value) === this.settings.defaultYear)) {
+                        yearEl.value = existingBook.year || this.settings.defaultYear;
+                    }
+                    
+                    // 自動填入封面網址（如果封面欄位為空）
+                    const coverEl = document.getElementById('book-cover-url');
+                    if (coverEl && (!coverEl.value.trim() || coverEl.value.trim() === '')) {
+                        coverEl.value = existingBook.coverUrl || '';
+                    }
+                } else {
+                    // 清除重複書籍提示
+                    const errorDiv = bookTitleInput.parentNode.querySelector('.field-error');
+                    if (errorDiv && errorDiv.textContent.includes('找到相同書名')) {
+                        this.hideFieldError('book-title');
+                    }
+                }
             }
             });
         }
