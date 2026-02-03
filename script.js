@@ -16,11 +16,11 @@ class LibrarySystem {
         
         // API 節流與重試機制
         this.lastApiRequestTime = 0;
-        this.apiRequestDelay = 2000; // 2 秒間隔，避免 429 錯誤
+        this.apiRequestDelay = 3000; // 增加到 3 秒間隔，避免 429 錯誤
         this.apiRetryConfig = {
-            maxRetries: 5, // 增加重試次數
-            baseDelay: 2000, // 增加基礎延遲
-            maxDelay: 16000 // 增加最大延遲
+            maxRetries: 3, // 減少重試次數，避免過度重試
+            baseDelay: 5000, // 增加基礎延遲到 5 秒
+            maxDelay: 30000 // 增加最大延遲到 30 秒
         };
         this.apiRequestQueue = [];
         this.apiRequestInProgress = false;
@@ -1642,8 +1642,25 @@ class LibrarySystem {
         // 處理系列書籍（至少2本才算系列）
         seriesMap.forEach((seriesBooks, seriesName) => {
             if (seriesBooks.length >= 2) {
-                // 按書名排序系列內的書籍（尊重升冪/降冪）
-                seriesBooks.sort((a, b) => this.smartTitleSort(a.title, b.title, sortOrder));
+                // 系列內書籍排序：優先考慮新書，然後按書名排序
+                seriesBooks.sort((a, b) => {
+                    // 優先處理新書：最近新增的書籍放在最前面
+                    const aAddedAt = Number(a.addedAt) || 0;
+                    const bAddedAt = Number(b.addedAt) || 0;
+                    const aIsNew = !!a.isNew && aAddedAt > 0;
+                    const bIsNew = !!b.isNew && bAddedAt > 0;
+                    
+                    // 如果其中一本是新書，按 addedAt 降序排列（最新的在前）
+                    if (aIsNew || bIsNew) {
+                        if (aIsNew && !bIsNew) return -1; // a 是新書，排在前面
+                        if (!aIsNew && bIsNew) return 1;  // b 是新書，排在前面
+                        // 兩本都是新書，按 addedAt 降序排列
+                        return bAddedAt - aAddedAt;
+                    }
+                    
+                    // 如果都不是新書，或者 addedAt 相同，則按書名排序
+                    return this.smartTitleSort(a.title, b.title, sortOrder);
+                });
                 sortedBooks.push(...seriesBooks);
             } else {
                 // 單本書籍加入獨立書籍
@@ -1651,8 +1668,26 @@ class LibrarySystem {
             }
         });
 
-        // 獨立書籍也按書名排序，避免打亂目前排序
-        standaloneBooks.sort((a, b) => this.smartTitleSort(a.title, b.title, sortOrder));
+        // 獨立書籍排序：優先考慮新書，然後按書名排序
+        standaloneBooks.sort((a, b) => {
+            // 優先處理新書：最近新增的書籍放在最前面
+            const aAddedAt = Number(a.addedAt) || 0;
+            const bAddedAt = Number(b.addedAt) || 0;
+            const aIsNew = !!a.isNew && aAddedAt > 0;
+            const bIsNew = !!b.isNew && bAddedAt > 0;
+            
+            // 如果其中一本是新書，按 addedAt 降序排列（最新的在前）
+            if (aIsNew || bIsNew) {
+                if (aIsNew && !bIsNew) return -1; // a 是新書，排在前面
+                if (!aIsNew && bIsNew) return 1;  // b 是新書，排在前面
+                // 兩本都是新書，按 addedAt 降序排列
+                return bAddedAt - aAddedAt;
+            }
+            
+            // 如果都不是新書，或者 addedAt 相同，則按書名排序
+            return this.smartTitleSort(a.title, b.title, sortOrder);
+        });
+        
         sortedBooks.push(...standaloneBooks);
         
         return sortedBooks;
@@ -1997,6 +2032,21 @@ class LibrarySystem {
 
         // 合併後排序
         mergedBooks.sort((a, b) => {
+            // 優先處理新書：最近新增的書籍放在最前面
+            const aAddedAt = Number(a.addedAt) || 0;
+            const bAddedAt = Number(b.addedAt) || 0;
+            const aIsNew = !!a.isNew && aAddedAt > 0;
+            const bIsNew = !!b.isNew && bAddedAt > 0;
+            
+            // 如果其中一本是新書，按 addedAt 降序排列（最新的在前）
+            if (aIsNew || bIsNew) {
+                if (aIsNew && !bIsNew) return -1; // a 是新書，排在前面
+                if (!aIsNew && bIsNew) return 1;  // b 是新書，排在前面
+                // 兩本都是新書，按 addedAt 降序排列
+                return bAddedAt - aAddedAt;
+            }
+            
+            // 如果都不是新書，或者 addedAt 相同，則按原來的排序邏輯
             if (sortBy === 'code') {
                 const aCode = String(a.id || '').toUpperCase();
                 const bCode = String(b.id || '').toUpperCase();
@@ -2337,12 +2387,114 @@ class LibrarySystem {
     showEditBookModal(bookId) {
         if (!this.requireAdmin('編輯書籍')) return;
 
+        // 查找書籍（包括合併書籍中的個別書籍）
+        let targetBook = this.books.find(b => b.id === bookId);
+        let allRelatedBooks = [];
+
+        if (targetBook) {
+            // 如果是普通書籍，查找所有相同書名的書籍
+            const sameTitleBooks = this.books.filter(b => 
+                this.normalizeTitle(b.title) === this.normalizeTitle(targetBook.title)
+            );
+            allRelatedBooks = sameTitleBooks;
+        } else {
+            // 如果直接找不到，可能在合併書籍中，查找所有相關書籍
+            const mergedBooks = this.mergeBooksByTitle(this.books);
+            const mergedBook = mergedBooks.find(mb => 
+                mb.bookIds && mb.bookIds.includes(bookId)
+            );
+            
+            if (mergedBook) {
+                allRelatedBooks = mergedBook.mergedBooks || [];
+                targetBook = allRelatedBooks.find(b => b.id === bookId);
+            }
+        }
+
+        if (!targetBook || allRelatedBooks.length === 0) {
+            this.showToast('書籍不存在', 'error');
+            return;
+        }
+
+        // 如果有多本相同書名的書籍，顯示選擇畫面
+        if (allRelatedBooks.length > 1) {
+            this.showBookSelectionModal(allRelatedBooks, targetBook.id);
+        } else {
+            // 只有一本書，直接顯示編輯畫面
+            this.openEditBookModal(targetBook);
+        }
+    }
+
+    // 顯示書籍選擇模態框
+    showBookSelectionModal(books, selectedBookId) {
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.display = 'block';
+        
+        const booksList = books.map(book => `
+            <div class="book-selection-item ${book.id === selectedBookId ? 'selected' : ''}" 
+                 onclick="library.selectBookForEdit('${book.id}')">
+                <div class="book-selection-info">
+                    <div class="book-selection-id">書碼：${book.id}</div>
+                    <div class="book-selection-details">
+                        <div class="book-selection-author">作者：${book.author || '未知'}</div>
+                        <div class="book-selection-year">出版年份：${book.year || '未知'}</div>
+                        <div class="book-selection-copies">冊數：${book.copies || 1}</div>
+                        <div class="book-selection-available">可借：${book.availableCopies || 0}</div>
+                    </div>
+                </div>
+                <div class="book-selection-cover">
+                    ${book.coverUrl ? 
+                        `<img src="${book.coverUrl}" alt="${book.title}" onerror="this.style.display='none'">` : 
+                        '<div class="no-cover">無封面</div>'
+                    }
+                </div>
+                ${book.id === selectedBookId ? 
+                    '<div class="book-selection-badge">目前選擇</div>' : 
+                    '<div class="book-selection-select-btn">選擇</div>'
+                }
+            </div>
+        `).join('');
+        
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 600px;">
+                <div class="modal-header">
+                    <h3>選擇要編輯的書籍</h3>
+                    <span class="close" onclick="this.closest('.modal').remove()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p class="selection-hint">找到多本相同書名的書籍，請選擇要編輯的具體書籍：</p>
+                    <div class="book-selection-list">
+                        ${booksList}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="this.closest('.modal').remove()">
+                        <i class="fas fa-times"></i> 取消
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+    }
+
+    // 選擇書籍進行編輯
+    selectBookForEdit(bookId) {
         const book = this.books.find(b => b.id === bookId);
         if (!book) {
             this.showToast('書籍不存在', 'error');
             return;
         }
+        
+        // 關閉選擇模態框
+        document.querySelector('.modal').remove();
+        
+        // 開啟編輯模態框
+        this.openEditBookModal(book);
+    }
 
+    // 開啟編輯書籍模態框
+    openEditBookModal(book) {
         const modal = document.getElementById('edit-book-modal');
         const originalIdInput = document.getElementById('edit-book-original-id');
         const idInput = document.getElementById('edit-book-id');
@@ -2585,12 +2737,18 @@ class LibrarySystem {
                 const res = await fetch(url, options);
                 if (res.ok) return await res.json();
                 if (res.status === 429) {
-                    // 429: Too Many Requests，使用更長的固定延遲
+                    // 429: Too Many Requests，使用指數退避策略
                     const delay = Math.min(
-                        this.apiRetryConfig.baseDelay * attempt, // 線性增長而不是指數
+                        this.apiRetryConfig.baseDelay * Math.pow(2, attempt - 1),
                         this.apiRetryConfig.maxDelay
                     );
                     console.warn(`API 429，等待 ${delay}ms 後重試 (${attempt}/${this.apiRetryConfig.maxRetries})`);
+                    
+                    // 在第一次 429 錯誤時顯示用戶提示
+                    if (attempt === 1) {
+                        this.showToast('API 請求過於頻繁，正在自動重試...', 'warning', 3000);
+                    }
+                    
                     await new Promise(resolve => setTimeout(resolve, delay));
                     continue;
                 }
@@ -2612,38 +2770,161 @@ class LibrarySystem {
     // 統一的 API 錯誤處理
     handleApiError(error, fallbackMessage = 'API 請求失敗') {
         if (error.message.includes('429')) {
-            this.showToast('請求過於頻繁，請等待 10-20 秒後再試', 'error');
+            this.showToast('請求過於頻繁，系統將自動重試，請稍候...', 'warning', 8000);
         } else if (error.message.includes('499') || error.message.includes('antivirus')) {
-            this.showToast('請求被防毒軟體阻擋，請暫時停用防毒或換網路', 'error');
+            this.showToast('請求被防毒軟體阻擋，請暫時停用防毒或換網路後重試', 'error', 6000);
         } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-            this.showToast('網路連線異常，請檢查網路狀態', 'error');
+            this.showToast('網路連線異常，請檢查網路狀態後重試', 'error', 6000);
+        } else if (error.message.includes('timeout')) {
+            this.showToast('請求超時，請稍後重試', 'error', 5000);
         } else {
-            this.showToast(fallbackMessage, 'error');
+            console.error('API 錯誤詳情:', error);
+            this.showToast(fallbackMessage, 'error', 5000);
         }
     }
 
     deleteBook(bookId) {
         if (!this.requireAdmin('刪除書籍')) return;
 
+        // 查找書籍（包括合併書籍中的個別書籍）
+        let targetBook = this.books.find(b => b.id === bookId);
+        let allRelatedBooks = [];
+
+        if (targetBook) {
+            // 如果是普通書籍，查找所有相同書名的書籍
+            const sameTitleBooks = this.books.filter(b => 
+                this.normalizeTitle(b.title) === this.normalizeTitle(targetBook.title)
+            );
+            allRelatedBooks = sameTitleBooks;
+        } else {
+            // 如果直接找不到，可能在合併書籍中，查找所有相關書籍
+            const mergedBooks = this.mergeBooksByTitle(this.books);
+            const mergedBook = mergedBooks.find(mb => 
+                mb.bookIds && mb.bookIds.includes(bookId)
+            );
+            
+            if (mergedBook) {
+                allRelatedBooks = mergedBook.mergedBooks || [];
+                targetBook = allRelatedBooks.find(b => b.id === bookId);
+            }
+        }
+
+        if (!targetBook || allRelatedBooks.length === 0) {
+            this.showToast('書籍不存在', 'error');
+            return;
+        }
+
+        // 如果有多本相同書名的書籍，顯示選擇畫面
+        if (allRelatedBooks.length > 1) {
+            this.showDeleteSelectionModal(allRelatedBooks, targetBook.id);
+        } else {
+            // 只有一本書，直接刪除
+            this.confirmDeleteBook(targetBook);
+        }
+    }
+
+    // 顯示刪除書籍選擇模態框
+    showDeleteSelectionModal(books, selectedBookId) {
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.display = 'block';
+        
+        const booksList = books.map(book => {
+            const borrowedCount = this.borrowedBooks.filter(b => b.bookId === book.id && !b.returnedAt).length;
+            const canDelete = borrowedCount === 0;
+            
+            return `
+                <div class="book-selection-item ${book.id === selectedBookId ? 'selected' : ''} ${!canDelete ? 'disabled' : ''}" 
+                     onclick="${canDelete ? `library.selectBookForDelete('${book.id}')` : ''}">
+                    <div class="book-selection-info">
+                        <div class="book-selection-id">書碼：${book.id}</div>
+                        <div class="book-selection-details">
+                            <div class="book-selection-author">作者：${book.author || '未知'}</div>
+                            <div class="book-selection-year">出版年份：${book.year || '未知'}</div>
+                            <div class="book-selection-copies">冊數：${book.copies || 1}</div>
+                            <div class="book-selection-available">可借：${book.availableCopies || 0}</div>
+                        </div>
+                        ${borrowedCount > 0 ? 
+                            `<div class="book-selection-warning">
+                                <i class="fas fa-exclamation-triangle"></i> 
+                                有 ${borrowedCount} 本未歸還，無法刪除
+                            </div>` : 
+                            ''
+                        }
+                    </div>
+                    <div class="book-selection-cover">
+                        ${book.coverUrl ? 
+                            `<img src="${book.coverUrl}" alt="${book.title}" onerror="this.style.display='none'">` : 
+                            '<div class="no-cover">無封面</div>'
+                        }
+                    </div>
+                    ${book.id === selectedBookId ? 
+                        '<div class="book-selection-badge">目前選擇</div>' : 
+                        (canDelete ? 
+                            '<div class="book-selection-select-btn book-selection-delete-btn">刪除</div>' :
+                            '<div class="book-selection-disabled-btn">無法刪除</div>'
+                        )
+                    }
+                </div>
+            `;
+        }).join('');
+        
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 600px;">
+                <div class="modal-header">
+                    <h3><i class="fas fa-trash"></i> 選擇要刪除的書籍</h3>
+                    <span class="close" onclick="this.closest('.modal').remove()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p class="selection-hint selection-hint-danger">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        找到多本相同書名的書籍，請選擇要刪除的具體書籍：
+                    </p>
+                    <div class="book-selection-list">
+                        ${booksList}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="this.closest('.modal').remove()">
+                        <i class="fas fa-times"></i> 取消
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+    }
+
+    // 選擇書籍進行刪除
+    selectBookForDelete(bookId) {
         const book = this.books.find(b => b.id === bookId);
         if (!book) {
             this.showToast('書籍不存在', 'error');
             return;
         }
+        
+        // 關閉選擇模態框
+        document.querySelector('.modal').remove();
+        
+        // 確認刪除
+        this.confirmDeleteBook(book);
+    }
 
-        const borrowedCount = this.borrowedBooks.filter(b => b.bookId === bookId && !b.returnedAt).length;
+    // 確認刪除書籍
+    confirmDeleteBook(book) {
+        const borrowedCount = this.borrowedBooks.filter(b => b.bookId === book.id && !b.returnedAt).length;
         if (borrowedCount > 0) {
             this.showToast('此書籍仍有未歸還借閱，無法刪除', 'error');
             return;
         }
 
-        if (!confirm(`確定要刪除「${book.title}」嗎？`)) return;
+        if (!confirm(`確定要刪除「${book.title}」（書碼：${book.id}）嗎？\n\n此操作無法復原！`)) return;
 
-        this.books = this.books.filter(b => b.id !== bookId);
+        this.books = this.books.filter(b => b.id !== book.id);
         this.saveData();
         this.renderBooks();
         this.updateStats();
-        this.showToast('書籍已刪除', 'success');
+        this.showToast(`書籍「${book.title}」已刪除`, 'success');
     }
 
     // 渲染借閱記錄
